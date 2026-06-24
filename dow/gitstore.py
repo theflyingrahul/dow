@@ -34,9 +34,9 @@ class GitStore:
         self._run("init")
         # Ensure a commit identity exists so commits work in fresh environments.
         if not self._run("config", "user.email", check=False):
-            self._run("config", "user.email", "aiver@example.com")
+            self._run("config", "user.email", "dow@example.com")
         if not self._run("config", "user.name", check=False):
-            self._run("config", "user.name", "aiver")
+            self._run("config", "user.name", "dow")
 
     def add(self, *paths: str) -> None:
         self._run("add", *paths)

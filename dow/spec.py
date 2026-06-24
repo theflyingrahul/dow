@@ -41,6 +41,7 @@ class SamplingSpec:
 class EvaluationSpec:
     embedding_model: str = "hashing-256"
     samples: int = 3
+    metrics: list = field(default_factory=list)
     thresholds: dict = field(
         default_factory=lambda: {"drift_warn": 0.15, "drift_fail": 0.40}
     )

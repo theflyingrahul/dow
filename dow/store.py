@@ -2,7 +2,7 @@
 
 Git is an internal implementation detail - users never run git commands. Each
 ``run`` snapshots the current spec and its captured behavior as ``v1``, ``v2``,
-and so on, and records it durably in a hidden Git repository under ``.aiver``.
+and so on, and records it durably in a hidden Git repository under ``.dow``.
 """
 from __future__ import annotations
 
@@ -12,7 +12,7 @@ from typing import Optional
 
 from .gitstore import GitError, GitStore
 
-STORE_DIR = ".aiver"
+STORE_DIR = ".dow"
 
 
 class Store:
@@ -35,7 +35,7 @@ class Store:
             self.git.init()
             self.git.add("-A")
             try:
-                self.git.commit("aiver: initialize behavior store")
+                self.git.commit("dow: initialize behavior store")
             except GitError:
                 pass
 
@@ -98,11 +98,53 @@ class Store:
             raise FileNotFoundError(f"Unknown version: {version_id}")
         return json.loads(path.read_text(encoding="utf-8"))
 
+    # -- tags ------------------------------------------------------------- #
+    def add_tag(self, spec_name: str, version_id: str, tag: str) -> None:
+        index = self._load_index()
+        for v in index["specs"].get(spec_name, {}).get("versions", []):
+            if v["id"] == version_id:
+                tags = v.setdefault("tags", [])
+                if tag not in tags:
+                    tags.append(tag)
+                break
+        self._save_index(index)
+        self._commit(f"{spec_name} {version_id}: tag {tag}")
+
+    def latest_with_tag(self, spec_name: str, tag: str):
+        t = (tag or "").strip().lower()
+        matches = [
+            v["id"]
+            for v in self.list_versions(spec_name)
+            if t in [str(x).lower() for x in v.get("tags", [])]
+        ]
+        return matches[-1] if matches else None
+
+    # -- evaluation results ---------------------------------------------- #
+    def save_eval(self, spec_name: str, version_id: str, eval_result: dict) -> None:
+        path = self.dir / "versions" / spec_name / f"{version_id}.json"
+        record = json.loads(path.read_text(encoding="utf-8"))
+        record["eval"] = eval_result
+        path.write_text(json.dumps(record, indent=2), encoding="utf-8")
+        index = self._load_index()
+        for v in index["specs"].get(spec_name, {}).get("versions", []):
+            if v["id"] == version_id:
+                v["eval"] = eval_result.get("metrics", {})
+                break
+        self._save_index(index)
+        self._commit(f"{spec_name} {version_id}: eval")
+
+    def _commit(self, message: str) -> None:
+        self.git.add("-A")
+        try:
+            self.git.commit(message)
+        except GitError:
+            pass
+
     # -- resolution ------------------------------------------------------- #
     def resolve(self, spec_name: str, ref: str) -> str:
         ids = [v["id"] for v in self.list_versions(spec_name)]
         if not ids:
-            raise ValueError("No versions yet. Run 'aiver run' first.")
+            raise ValueError("No versions yet. Run 'dow run' first.")
         r = (ref or "last").strip().lower()
         if r in ("last", "latest", "head"):
             return ids[-1]
@@ -114,4 +156,7 @@ class Store:
             r = f"v{r}"
         if r in ids:
             return r
-        raise ValueError(f"Unknown version '{ref}'. Available: {', '.join(ids)}")
+        tagged = self.latest_with_tag(spec_name, ref)
+        if tagged:
+            return tagged
+        raise ValueError(f"Unknown version or tag '{ref}'. Available: {', '.join(ids)}")

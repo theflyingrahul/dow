@@ -1,4 +1,4 @@
-# AI Behavior Versioning — Hackathon Project Plan
+# Drift Observation Workbench — Hackathon Project Plan
 
 > Pitch: "We version code, but not AI behavior. This project versions the complete inference specification in Git and measures semantic drift, stability, and regressions across versions, so every behavioral change can be attributed to a specific configuration change."
 
@@ -108,6 +108,9 @@ sampling:
 evaluation:
   embedding_model: hashing-256      # offline default; swap for a sentence-transformers id
   samples: 5                        # N samples per version, used for stability
+  metrics:                          # your own evaluators (path.py:function)
+    - evals.py:avg_word_count
+    - evals.py:mentions_order_id
   thresholds:
     drift_warn: 0.15
     drift_fail: 0.40
@@ -157,6 +160,7 @@ classDiagram
     class Evaluation {
       +embedding_model
       +samples
+      +metrics
       +thresholds
     }
     class Inputs {
@@ -188,7 +192,7 @@ Everything above the runtime boundary lives in the specification file you edit; 
 
 Execution records every observable property of the inference at runtime. The run record is saved as a named version in the Git-backed behavior store, linked to the exact specification that produced it.
 
-Run record, saved as `.aiver/versions/<spec-name>/v2.json`:
+Run record, saved as `.dow/versions/<spec-name>/v2.json`:
 
 ```json
 {
@@ -219,7 +223,7 @@ Repository layout, with Git as the backend:
 ```
 specs/
   summarization.yaml          # the spec you edit (the working version)
-.aiver/                       # hidden, Git-backed behavior store
+.dow/                       # hidden, Git-backed behavior store
   index.json                  # version list per spec
   versions/
     summarization/
@@ -227,7 +231,7 @@ specs/
       v2.json
 ```
 
-Because versions are ordinary files under `.aiver`, the Git backend provides durable, recoverable history for free. Users never run Git; they refer to versions by simple names such as `v1` and `v2`, and the tool reads the records directly.
+Because versions are ordinary files under `.dow`, the Git backend provides durable, recoverable history for free. Users never run Git; they refer to versions by simple names such as `v1` and `v2`, and the tool reads the records directly.
 
 ---
 
@@ -250,6 +254,26 @@ Outputs are embedded as vectors and compared with cosine similarity, cos(a, b) =
   - drift from 0.15 up to 0.40: Behavior Drift
   - drift of 0.40 or above, or a substantial decrease in stability: Likely Regression
 
+### Custom evaluators (pluggable metrics)
+
+Beyond the built-in signals, users plug in their own metrics. An evaluator is a plain Python callable that receives an `EvalContext` (the input, the sampled outputs, the config, and the runtime capture) and returns a score or a dict of named scores. Evaluators are referenced from the spec under `evaluation.metrics`:
+
+```yaml
+evaluation:
+  metrics:
+    - evals.py:avg_word_count        # local file : function
+    - my_pkg.metrics:accuracy        # importable module : function
+```
+
+```python
+# evals.py
+def avg_word_count(ctx):
+    counts = [len(o.split()) for o in ctx.outputs]
+    return sum(counts) / len(counts) if counts else 0.0
+```
+
+`dow eval` runs the configured evaluators, saves the scores into the version record so they travel with the commit, and reports them against the previous version and the last version tagged as good. Evaluation runs automatically on `dow run` and is lazy thereafter: saved results are reused unless `--rerun` is passed. Any version can be labelled with `dow tag` (for example `good`, `golden`, `baseline`), and `dow eval --good-tag <label>` selects which label marks the known-good baseline.
+
 ---
 
 ## 7. Command-Line Interface
@@ -258,30 +282,32 @@ The commands are task-oriented, not version-control plumbing. Versioning is auto
 
 | Command | Purpose |
 |---|---|
-| `aiver run` | Run the specification and capture its behavior as a new version |
-| `aiver compare [A] [B]` | Compare two versions - output difference, semantic drift, stability, verdict (defaults to the last two) |
-| `aiver explain [A] [B]` | Explain why behavior changed: attribute it to the configuration difference (Section 8) |
-| `aiver history` | List captured versions and their stability |
-| `aiver inspect [version]` | Show one version's specification, runtime capture, and outputs |
-| `aiver tree` | Visualize how behavior evolves across versions (terminal tree or exported Mermaid) |
+| `dow run` | Run the specification and capture its behavior as a new version |
+| `dow compare [A] [B]` | Compare two versions - output difference, semantic drift, stability, verdict (defaults to the last two) |
+| `dow explain [A] [B]` | Explain why behavior changed: attribute it to the configuration difference (Section 8) |
+| `dow history` | List captured versions and their stability |
+| `dow inspect [version]` | Show one version's specification, runtime capture, and outputs |
+| `dow tag <label> [version]` | Tag a version with a free-form label: good, golden, baseline, bad, ... |
+| `dow eval [version]` | Run custom evaluators; compare scores against the previous and last-good versions |
+| `dow tree` | Visualize evolution: a vertical trunk with branches, as a terminal tree or an exported Mermaid `gitGraph` |
 
-Versions are referred to by simple names (`v1`, `v2`) or the shortcuts `last` and `prev`, and they form a tree: every run records its parent, and `aiver run --from v1` starts a new branch from an earlier version. All output is rendered in the terminal; there is no web or graphical interface.
+Versions are referred to by simple names (`v1`, `v2`), the shortcuts `last` and `prev`, or any label applied with `dow tag` (for example `good`). They form a tree: every run records its parent, and `dow run --from v1` starts a new branch from an earlier version. All output is rendered in the terminal; there is no web or graphical interface.
 
 Example session:
 
 ```
-$ aiver run
-Created specs/summarization.yaml. Edit it, then run aiver run again.
+$ dow run
+Created specs/summarization.yaml. Edit it, then run dow run again.
 
-$ aiver run
+$ dow run
 Captured v1   stability 0.72
 
 # raise the temperature in specs/summarization.yaml
 
-$ aiver run
+$ dow run
 Captured v2   stability 0.53
 
-$ aiver compare
+$ dow compare
 summarization   v1 vs v2
 What changed in the configuration
   sampling.temperature: 0.2 -> 0.9
@@ -290,32 +316,31 @@ Semantic drift:    0.42  (warn 0.15, fail 0.40)
 Stability v1: 0.72    Stability v2: 0.53
 Verdict: Likely Regression
 
-$ aiver explain
+$ dow explain
 Cause:  sampling.temperature (0.2 -> 0.9)
 Effect: semantic drift 0.42, stability change -0.19 -> Likely Regression
 ```
 
 ### Visualizing evolution
 
-`aiver tree` renders the version history as a tree, annotated with what changed and the resulting drift; `aiver tree -o evolution.md` exports the same as a Mermaid diagram, color-coded by verdict:
+`dow tree` renders the version history with the main line as a vertical trunk and each derivative branch (and sub-branch) running alongside it, in chronological order. `dow tree -o evolution.md` exports the same as a Mermaid `gitGraph`; commits are tagged with drift (`d`) and stability (`s`), and regressions are highlighted:
 
 ```mermaid
-graph TD
-    v1["v1<br/>stability 0.72"]
-    v2["v2<br/>stability 0.53"]
-    v3["v3<br/>stability 0.72"]
-    v1 -->|"sampling.temperature: 0.2->0.9<br/>drift 0.42"| v2
-    v1 -->|"prompt.system changed<br/>drift 0.00"| v3
-    class v1 baseline
-    class v2 regression
-    class v3 consistent
-    classDef baseline fill:#e2e3e5,stroke:#6c757d,color:#000
-    classDef consistent fill:#d4edda,stroke:#28a745,color:#000
-    classDef drift fill:#fff3cd,stroke:#ffc107,color:#000
-    classDef regression fill:#f8d7da,stroke:#dc3545,color:#000
+gitGraph TB:
+    commit id: "v1 (baseline)" tag: "s=0.72"
+    branch v3-branch
+    checkout main
+    commit id: "v2: sampling.temperature: 0.2->0.9" type: HIGHLIGHT tag: "d=0.42 s=0.53"
+    checkout v3-branch
+    commit id: "v3: prompt.system changed" tag: "d=0.00 s=0.72"
+    branch v5-branch
+    checkout v3-branch
+    commit id: "v4: sampling.max_tokens: 256->64" tag: "d=0.00 s=0.72"
+    checkout v5-branch
+    commit id: "v5: sampling.seed: 7->42" tag: "d=0.00 s=0.72"
 ```
 
-Here v2 and v3 are independent branches from v1: raising the temperature regressed stability, while changing the prompt did not.
+The trunk `v1 -> v2` is the main line; `v3-branch` forks from v1 and continues to v4, and `v5-branch` is a sub-branch off v3. Raising the temperature (v2) regressed stability and is highlighted; under the offline mock embedder the other edits register no drift, whereas a real model and embedding model would surface drift on each.
 
 ---
 
@@ -341,10 +366,10 @@ Approximately eight to nine hours, organized by component and parallelizable acr
 | Time | Versioning and runtime | Metrics and interface |
 |---|---|---|
 | 0:00-1:00 | Specification schema; behavior store (automatic versioning, Git-backed) | Scaffold the CLI with Typer and Rich; implement the mock provider |
-| 1:00-2:30 | Runner: N samples and full runtime capture; `aiver run` end to end | Embedding integration with batched calls |
+| 1:00-2:30 | Runner: N samples and full runtime capture; `dow run` end to end | Embedding integration with batched calls |
 | 2:30-3:30 | Version resolution and record lookup; seed example specifications | Metrics engine: difference, drift, stability, verdict |
-| 3:30-4:30 | Specification diff between versions | `aiver compare` report rendering in the terminal |
-| 4:30-6:00 | `aiver explain` attribution and confounded-comparison detection | `aiver history` and `aiver inspect` |
+| 3:30-4:30 | Specification diff between versions | `dow compare` report rendering in the terminal |
+| 4:30-6:00 | `dow explain` attribution and confounded-comparison detection | `dow history` and `dow inspect` |
 | 6:00-7:00 | Edge cases; threshold tuning; prepare a clear demonstration example | Output polish: tables, colors, and wording |
 | 7:00-8:00 | Stretch: Git notes or multiple inputs | Stretch: drift trend across versions |
 | 8:00-9:00 | Demonstration rehearsal and buffer | Demonstration rehearsal |
@@ -380,9 +405,9 @@ For a single contributor, implement the components in MVP order and rely on mock
 ## 12. Demonstration Script (approximately two minutes)
 
 1. Context: code has Git, but AI behavior has no equivalent versioning layer.
-2. Run the specification with `aiver run`; show the captured version (v1) and its stability.
-3. Change a single field, for example the temperature, and run `aiver run` again to capture v2.
-4. Run `aiver compare` and `aiver explain`: semantic drift rises and stability falls, attributed to the single configuration change.
+2. Run the specification with `dow run`; show the captured version (v1) and its stability.
+3. Change a single field, for example the temperature, and run `dow run` again to capture v2.
+4. Run `dow compare` and `dow explain`: semantic drift rises and stability falls, attributed to the single configuration change.
 5. Close: the tool versions the entire inference specification and attributes every behavioral change to a specific configuration change.
 
 ---
@@ -398,12 +423,12 @@ pip install -e ".[openai]"        # optional, for hosted models
 pip install -e ".[local]"         # optional, for local sentence-transformers embeddings
 
 # Capture and compare versions (versioning is automatic)
-aiver run                 # first run scaffolds an example spec
-aiver run                 # captures v1
+dow run                 # first run scaffolds an example spec
+dow run                 # captures v1
 # change one field in specs/summarization.yaml (for example, temperature), then:
-aiver run                 # captures v2
-aiver compare             # v1 vs v2
-aiver explain             # what caused the change
+dow run                 # captures v2
+dow compare             # v1 vs v2
+dow explain             # what caused the change
 ```
 
 The tool runs entirely offline by default (mock provider and a built-in hashing embedder). Set the provider to a local runtime (Ollama) for local models, or supply `OPENAI_API_KEY` only when using a hosted model.
@@ -414,8 +439,10 @@ The tool runs entirely offline by default (mock provider and a built-in hashing 
 
 - [ ] A specification captures the prompt, the model identity and version, the sampling settings, and the evaluation configuration.
 - [ ] Execution records runtime metadata (model version and revision, system fingerprint, seed, library versions) and saves the version durably in the Git-backed store.
-- [ ] `aiver compare` reports the configuration difference, output difference, semantic drift, stability, and a verdict.
-- [ ] `aiver explain` attributes a behavioral change to the configuration difference and flags confounded comparisons.
-- [ ] `aiver tree` visualizes the version evolution (terminal tree and exported Mermaid), with branches via `aiver run --from`.
+- [ ] `dow compare` reports the configuration difference, output difference, semantic drift, stability, and a verdict.
+- [ ] `dow explain` attributes a behavioral change to the configuration difference and flags confounded comparisons.
+- [ ] `dow tree` visualizes the version evolution (terminal tree and exported Mermaid), with branches via `dow run --from`.
+- [ ] Users can plug in custom evaluators (`evaluation.metrics`); `dow eval` runs them lazily, saves the scores with the version, and compares against the previous and last-good versions.
+- [ ] `dow tag` applies free-form labels (good, golden, baseline, ...) that are usable as version references.
 - [ ] The tool runs end to end offline through mock or local mode.
 - [ ] A rehearsed two-minute demonstration that lands the closing statement.

@@ -1,4 +1,4 @@
-"""aiver command-line interface.
+"""dow command-line interface.
 
 Task-oriented commands focused on behavioral analysis. Versioning is automatic
 and the Git-backed store is hidden - there is no init, staging, commit, or refs.
@@ -10,6 +10,7 @@ import typer
 
 from . import report
 from .embeddings import get_embedder
+from .evaluators import evaluate_version
 from .metrics import output_difference, semantic_drift, stability
 from .metrics import verdict as compute_verdict
 from .runner import execute
@@ -18,7 +19,7 @@ from .store import Store
 
 app = typer.Typer(
     add_completion=False,
-    help="AI Behavior Versioning - track how your AI's behavior changes across versions.",
+    help="Drift Observation Workbench - track how your AI's behavior changes across versions.",
 )
 
 SPECS_DIR = "specs"
@@ -55,6 +56,9 @@ sampling:
 evaluation:
   embedding_model: hashing-256      # offline default; swap for a sentence-transformers id
   samples: 5
+  metrics:                          # your own evaluators: path.py:function (see evals.py)
+    - evals.py:avg_word_count
+    - evals.py:mentions_order_id
   thresholds:
     drift_warn: 0.15
     drift_fail: 0.40
@@ -62,6 +66,29 @@ evaluation:
 inputs:
   - "My order #123 never arrived and support has not replied in a week."
 """
+
+EXAMPLE_EVALS = r'''"""Example custom evaluators for dow.
+
+Each evaluator receives an EvalContext and returns a score (float) or a dict of
+named scores. Reference them from a spec under evaluation.metrics, e.g.
+"evals.py:avg_word_count".
+"""
+import re
+
+
+def avg_word_count(ctx):
+    """Average number of words per output."""
+    counts = [len(o.split()) for o in ctx.outputs]
+    return sum(counts) / len(counts) if counts else 0.0
+
+
+def mentions_order_id(ctx):
+    """Fraction of outputs that mention a numeric order id."""
+    if not ctx.outputs:
+        return 0.0
+    hits = sum(1 for o in ctx.outputs if re.search(r"\b\d{2,}\b", o))
+    return hits / len(ctx.outputs)
+'''
 
 
 # --------------------------------------------------------------------------- #
@@ -99,7 +126,7 @@ def _find_spec_name(name: Optional[str]) -> Optional[str]:
 def _need_spec(name: Optional[str]) -> str:
     resolved = _find_spec_name(name)
     if not resolved:
-        raise typer.BadParameter("No spec found. Run 'aiver run' to get started.")
+        raise typer.BadParameter("No spec found. Run 'dow run' to get started.")
     return resolved
 
 
@@ -124,7 +151,7 @@ def _resolve_pair(store: Store, name: str, a: Optional[str], b: Optional[str]):
     if a is None and b is None:
         if len(versions) < 2:
             raise typer.BadParameter(
-                "Need at least two versions. Change your spec and run 'aiver run' again."
+                "Need at least two versions. Change your spec and run 'dow run' again."
             )
         return versions[-2]["id"], versions[-1]["id"]
     if b is None:
@@ -148,6 +175,34 @@ def _compare(store: Store, name: str, a_id: str, b_id: str):
     return cfg_diff, outdiff, drift, stab_a, stab_b, label, thresholds
 
 
+def _ensure_eval(store: Store, name: str, vid: str, rerun: bool = False):
+    """Return the version's eval result, running and saving it if not present."""
+    rec = store.get_record(name, vid)
+    refs = rec.get("config", {}).get("evaluation", {}).get("metrics", [])
+    if not refs:
+        return None
+    if not rerun and isinstance(rec.get("eval"), dict) and rec["eval"].get("metrics"):
+        return rec["eval"]
+    result = evaluate_version(rec, _root())
+    store.save_eval(name, vid, result)
+    return result
+
+
+def _auto_eval(store: Store, name: str, vid: str) -> None:
+    """Run configured evaluators at capture time; never block the run on failure."""
+    refs = store.get_record(name, vid).get("config", {}).get("evaluation", {}).get("metrics", [])
+    if not refs:
+        return
+    try:
+        result = _ensure_eval(store, name, vid)
+    except Exception as exc:  # an evaluator bug must not lose the captured version
+        report.console.print(f"  [yellow]eval skipped:[/yellow] {exc}")
+        return
+    metrics = (result or {}).get("metrics", {})
+    if metrics:
+        report.console.print("  eval: " + "  ".join(f"{k}={v:.2f}" for k, v in metrics.items()))
+
+
 # --------------------------------------------------------------------------- #
 # commands
 # --------------------------------------------------------------------------- #
@@ -162,9 +217,12 @@ def run(
     if not files and not spec:
         _specs_dir().mkdir(parents=True, exist_ok=True)
         _spec_path(EXAMPLE_NAME).write_text(EXAMPLE_SPEC, encoding="utf-8")
+        evals_path = _root() / "evals.py"
+        if not evals_path.exists():
+            evals_path.write_text(EXAMPLE_EVALS, encoding="utf-8")
         report.console.print(
-            f"[green]Created[/green] specs/{EXAMPLE_NAME}.yaml. "
-            "Edit it, then run [bold]aiver run[/bold] again."
+            f"[green]Created[/green] specs/{EXAMPLE_NAME}.yaml and evals.py. "
+            "Edit them, then run [bold]dow run[/bold] again."
         )
         return
 
@@ -183,8 +241,9 @@ def run(
         note = f"same configuration as {prior[-1]['id']} - re-running measures non-determinism"
     vid = store.add_version(name, record, message or "", parent=parent)
     report.print_run(record, vid, note)
+    _auto_eval(store, name, vid)
     if prior:
-        report.console.print("  next: [bold]aiver compare[/bold]  or  [bold]aiver tree[/bold]")
+        report.console.print("  next: [bold]dow compare[/bold]  or  [bold]dow eval[/bold]")
 
 
 @app.command()
@@ -235,11 +294,57 @@ def inspect(
     version: Optional[str] = typer.Argument(None, help="Version to show (default: latest)."),
     spec: Optional[str] = typer.Option(None, "--spec", "-s"),
 ) -> None:
-    """Show one version's spec, runtime capture, and outputs."""
+    """Show one version's spec, runtime capture, outputs, tags, and eval scores."""
     name = _need_spec(spec)
     store = Store(_root())
     vid = _resolve(store, name, version or "last")
-    report.print_inspect(store.get_record(name, vid), vid)
+    tags = store.meta(name, vid).get("tags", [])
+    report.print_inspect(store.get_record(name, vid), vid, tags)
+
+
+@app.command()
+def tag(
+    label: str = typer.Argument(..., help="Free-form label, e.g. good, golden, baseline, bad."),
+    version: Optional[str] = typer.Argument(None, help="Version to tag (default: latest)."),
+    spec: Optional[str] = typer.Option(None, "--spec", "-s"),
+) -> None:
+    """Tag a version with a free-form label (good, golden, baseline, ...)."""
+    name = _need_spec(spec)
+    store = Store(_root())
+    vid = _resolve(store, name, version or "last")
+    store.add_tag(name, vid, label)
+    report.console.print(f"[green]tagged[/green] {vid} as [cyan]{label}[/cyan]")
+
+
+@app.command("eval")
+def evaluate(
+    version: Optional[str] = typer.Argument(None, help="Version to evaluate (default: latest)."),
+    rerun: bool = typer.Option(False, "--rerun", help="Re-run evaluators even if results are saved."),
+    good_tag: str = typer.Option("good", "--good-tag", help="Tag that marks the known-good baseline."),
+    spec: Optional[str] = typer.Option(None, "--spec", "-s"),
+) -> None:
+    """Run custom evaluators on a version; compare to the previous and last-good versions."""
+    name = _need_spec(spec)
+    store = Store(_root())
+    versions = store.list_versions(name)
+    if not versions:
+        raise typer.BadParameter("No versions yet. Run 'dow run' first.")
+    ids = [v["id"] for v in versions]
+    vid = _resolve(store, name, version or "last")
+    refs = store.get_record(name, vid)["config"]["evaluation"].get("metrics", [])
+    if not refs:
+        report.console.print(
+            "[yellow]No evaluators configured.[/yellow] Add 'metrics' under 'evaluation' "
+            "in your spec, e.g.\n  metrics:\n    - evals.py:avg_word_count"
+        )
+        return
+    target_eval = _ensure_eval(store, name, vid, rerun=rerun)
+    idx = ids.index(vid)
+    prev_id = ids[idx - 1] if idx > 0 else None
+    good_id = store.latest_with_tag(name, good_tag)
+    prev_eval = _ensure_eval(store, name, prev_id) if prev_id else None
+    good_eval = _ensure_eval(store, name, good_id) if good_id else None
+    report.print_eval(name, vid, target_eval, prev_id, prev_eval, good_tag, good_id, good_eval)
 
 
 def _build_tree(store: Store, name: str) -> dict:
@@ -281,7 +386,7 @@ def tree(
     store = Store(_root())
     data = _build_tree(store, name)
     if not data["versions"]:
-        report.console.print("[yellow]No versions yet.[/yellow] Run [bold]aiver run[/bold] to start.")
+        report.console.print("[yellow]No versions yet.[/yellow] Run [bold]dow run[/bold] to start.")
         return
     if mermaid or output:
         diagram = report.build_mermaid(

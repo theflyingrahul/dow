@@ -3,9 +3,9 @@ requires = ["setuptools>=68"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "aiver"
+name = "dow"
 version = "0.1.0"
-description = "AI Behavior Versioning - Git for AI behavior."
+description = "Drift Observation Workbench - Git for AI behavior."
 readme = "README.md"
 requires-python = ">=3.9"
 dependencies = [
@@ -20,7 +20,7 @@ openai = ["openai>=1.40"]
 local = ["sentence-transformers>=2.7"]
 
 [project.scripts]
-aiver = "aiver.cli:main"
+dow = "dow.cli:main"
 
 [tool.setuptools]
-packages = ["aiver"]
+packages = ["dow"]

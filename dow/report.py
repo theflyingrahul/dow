@@ -36,18 +36,19 @@ def print_run(record: dict, vid: str, note: str = "") -> None:
     ]
     if note:
         lines.append(f"[dim]{note}[/dim]")
-    console.print(Panel.fit("\n".join(lines), title="aiver run", border_style="green"))
+    console.print(Panel.fit("\n".join(lines), title="dow run", border_style="green"))
 
 
 def print_history(name: str, versions: list, work_fp=None) -> None:
     if not versions:
-        console.print("[yellow]No versions yet.[/yellow] Run [bold]aiver run[/bold] to capture one.")
+        console.print("[yellow]No versions yet.[/yellow] Run [bold]dow run[/bold] to capture one.")
         return
     table = Table(box=box.SIMPLE, header_style="bold", title=f"{name}: behavior history")
     table.add_column("version")
     table.add_column("when")
     table.add_column("stability", justify="right")
     table.add_column("change")
+    table.add_column("tags")
     table.add_column("note")
     prev_fp = None
     for v in versions:
@@ -57,35 +58,38 @@ def print_history(name: str, versions: list, work_fp=None) -> None:
             change = "[dim]same config[/dim]"
         else:
             change = "[yellow]config changed[/yellow]"
+        tags = ", ".join(f"[cyan]{t}[/cyan]" for t in v.get("tags", []))
         table.add_row(
-            v["id"], _short_time(v.get("created")), f"{v['stability']:.3f}", change, v.get("message") or ""
+            v["id"], _short_time(v.get("created")), f"{v['stability']:.3f}", change, tags, v.get("message") or ""
         )
         prev_fp = v["fingerprint"]
     console.print(table)
     if work_fp is not None and work_fp != versions[-1]["fingerprint"]:
         console.print(
             "[yellow]The working spec has unsaved changes[/yellow] since "
-            f"{versions[-1]['id']}; run [bold]aiver run[/bold] to capture them."
+            f"{versions[-1]['id']}; run [bold]dow run[/bold] to capture them."
         )
 
 
-def print_inspect(record: dict, vid: str) -> None:
+def print_inspect(record: dict, vid: str, tags=None) -> None:
     rt = record["runtime"]
     cfg = record["config"]
-    console.print(
-        Panel.fit(
-            f"[bold]{record['spec_name']} {vid}[/bold]\n"
-            f"model: {cfg['model']['provider']}/{cfg['model']['version']} "
-            f"rev={_fmt(cfg['model'].get('revision'))}\n"
-            f"temperature: {cfg['sampling']['temperature']}  "
-            f"top_p: {cfg['sampling']['top_p']}  seed: {cfg['sampling']['seed']}\n"
-            f"embedding: {rt['embedding_model']}  "
-            f"stability: {record['metrics']['stability']:.3f}\n"
-            f"system_fingerprint: {_fmt(rt.get('system_fingerprint'))}",
-            title="aiver inspect",
-            border_style="cyan",
-        )
-    )
+    lines = [
+        f"[bold]{record['spec_name']} {vid}[/bold]",
+        f"model: {cfg['model']['provider']}/{cfg['model']['version']} "
+        f"rev={_fmt(cfg['model'].get('revision'))}",
+        f"temperature: {cfg['sampling']['temperature']}  "
+        f"top_p: {cfg['sampling']['top_p']}  seed: {cfg['sampling']['seed']}",
+        f"embedding: {rt['embedding_model']}  "
+        f"stability: {record['metrics']['stability']:.3f}",
+        f"system_fingerprint: {_fmt(rt.get('system_fingerprint'))}",
+    ]
+    if tags:
+        lines.append("tags: " + ", ".join(f"[cyan]{t}[/cyan]" for t in tags))
+    ev = record.get("eval")
+    if isinstance(ev, dict) and ev.get("metrics"):
+        lines.append("eval: " + "  ".join(f"{k}={v:.3f}" for k, v in ev["metrics"].items()))
+    console.print(Panel.fit("\n".join(lines), title="dow inspect", border_style="cyan"))
     table = Table(box=box.SIMPLE, header_style="bold")
     table.add_column("#")
     table.add_column("output")
@@ -109,7 +113,7 @@ def print_config_diff(config_diff: dict) -> None:
 
 def print_compare(name, a_id, b_id, config_diff, outdiff, drift, stab_a, stab_b, verdict_label, thresholds) -> None:
     console.print(
-        Panel.fit(f"[bold]{name}[/bold]   {a_id}  vs  {b_id}", title="aiver compare", border_style="magenta")
+        Panel.fit(f"[bold]{name}[/bold]   {a_id}  vs  {b_id}", title="dow compare", border_style="magenta")
     )
     console.print("[bold]What changed in the configuration[/bold]")
     print_config_diff(config_diff)
@@ -133,7 +137,7 @@ def print_explain(name, a_id, b_id, config_diff, confounded, verdict_label, drif
     console.print(
         Panel.fit(
             f"[bold]{name}[/bold]   why did {a_id} -> {b_id} change?",
-            title="aiver explain",
+            title="dow explain",
             border_style="magenta",
         )
     )
@@ -171,14 +175,6 @@ def _summarize_change(cfg: dict) -> str:
             return f"{k}: {sa}->{sb}"
         return f"{k} changed"
     return f"{len(cfg)} fields changed"
-
-
-def _verdict_class(label: str) -> str:
-    return {
-        "Consistent": "consistent",
-        "Behavior Drift": "drift",
-        "Likely Regression": "regression",
-    }.get(label, "baseline")
 
 
 def _node_label(vid: str, stab: float, edge) -> str:
@@ -219,29 +215,97 @@ def _mermaid_safe(text: str) -> str:
     return text.replace('"', "'").replace("|", "/")
 
 
+def _branch_name(vid: str) -> str:
+    return f"{vid}-branch"
+
+
+def _commit_fields(vid, stab, edge):
+    """Build the gitGraph commit label, tag, and type for one version."""
+    if not edge:
+        return _mermaid_safe(f"{vid} (baseline)"), _mermaid_safe(f"s={stab:.2f}"), None
+    label = _mermaid_safe(f"{vid}: {_summarize_change(edge['cfg'])}")
+    tag = _mermaid_safe(f"d={edge['drift']:.2f} s={stab:.2f}")
+    ctype = "HIGHLIGHT" if edge["verdict"] == "Likely Regression" else None
+    return label, tag, ctype
+
+
 def build_mermaid(name, versions, stab, parent_of, edges) -> str:
-    lines = ["graph TD"]
-    for v in versions:
-        vid = v["id"]
-        lines.append(f'    {vid}["{vid}<br/>stability {stab[vid]:.2f}"]')
-    for v in versions:
-        vid = v["id"]
+    """Render the evolution as a Mermaid gitGraph.
+
+    The main line is the vertical trunk; the first child of a version continues
+    that trunk, while later children fork a new lane that runs alongside it.
+    Commits are emitted in chronological order so vertical position tracks time.
+    """
+    order = [v["id"] for v in versions]
+    children = {vid: [] for vid in order}
+    for vid in order:
         p = parent_of.get(vid)
-        if p:
-            edge = edges.get(vid, {})
-            label = _mermaid_safe(
-                f"{_summarize_change(edge.get('cfg', {}))}<br/>drift {edge.get('drift', 0):.2f}"
-            )
-            lines.append(f'    {p} -->|"{label}"| {vid}')
-    for v in versions:
-        vid = v["id"]
-        edge = edges.get(vid)
-        cls = _verdict_class(edge["verdict"]) if edge else "baseline"
-        lines.append(f"    class {vid} {cls}")
-    lines += [
-        "    classDef baseline fill:#e2e3e5,stroke:#6c757d,color:#000",
-        "    classDef consistent fill:#d4edda,stroke:#28a745,color:#000",
-        "    classDef drift fill:#fff3cd,stroke:#ffc107,color:#000",
-        "    classDef regression fill:#f8d7da,stroke:#dc3545,color:#000",
-    ]
+        if p in children:
+            children[p].append(vid)
+
+    branch_of = {}
+    forks_at = {vid: [] for vid in order}
+    for vid in order:
+        p = parent_of.get(vid)
+        if p is None or p not in branch_of:
+            branch_of[vid] = "main"
+            continue
+        if children[p] and children[p][0] == vid:
+            branch_of[vid] = branch_of[p]
+        else:
+            lane = _branch_name(vid)
+            branch_of[vid] = lane
+            forks_at[p].append(lane)
+
+    lines = ["gitGraph TB:"]
+    current = "main"
+    for vid in order:
+        lane = branch_of[vid]
+        if lane != current:
+            lines.append(f"    checkout {lane}")
+            current = lane
+        label, tag, ctype = _commit_fields(vid, stab[vid], edges.get(vid))
+        commit = f'    commit id: "{label}"'
+        if ctype:
+            commit += f" type: {ctype}"
+        if tag:
+            commit += f' tag: "{tag}"'
+        lines.append(commit)
+        for lane_child in forks_at[vid]:
+            lines.append(f"    branch {lane_child}")
+            current = lane_child
     return "\n".join(lines)
+
+
+def _delta_cell(cur, ref) -> str:
+    if ref is None:
+        return "-"
+    return f"{ref:.3f} ({cur - ref:+.3f})"
+
+
+def print_eval(name, vid, target, prev_id, prev, good_tag, good_id, good) -> None:
+    console.print(
+        Panel.fit(f"[bold]{name} {vid}[/bold]  custom evaluation", title="dow eval", border_style="cyan")
+    )
+    tmetrics = (target or {}).get("metrics", {})
+    pmetrics = (prev or {}).get("metrics", {})
+    gmetrics = (good or {}).get("metrics", {})
+    if not tmetrics:
+        console.print("[yellow]No metric scores were produced.[/yellow]")
+        return
+    table = Table(box=box.SIMPLE, header_style="bold")
+    table.add_column("metric")
+    table.add_column(vid, justify="right")
+    table.add_column(f"prev {prev_id}" if prev_id else "prev", justify="right")
+    table.add_column(f"good {good_id}" if good_id else f"good <{good_tag}>", justify="right")
+    for m in sorted(tmetrics):
+        cur = tmetrics[m]
+        table.add_row(m, f"{cur:.3f}", _delta_cell(cur, pmetrics.get(m)), _delta_cell(cur, gmetrics.get(m)))
+    console.print(table)
+    if not prev_id:
+        console.print("[dim]no previous version to compare[/dim]")
+    if not good_id:
+        console.print(
+            f"[dim]no version tagged '{good_tag}' yet - mark one with: "
+            f"dow tag {good_tag} <version>[/dim]"
+        )
