@@ -1,0 +1,89 @@
+{
+  "spec_name": "summarization",
+  "spec_fingerprint": "35b225c5fc6a",
+  "run_id": "2026-06-24T12:21:37Z",
+  "input": "My order #123 never arrived and support has not replied in a week.",
+  "config": {
+    "spec_version": 1,
+    "name": "summarization",
+    "task": "Summarize a customer support ticket",
+    "prompt": {
+      "system": "You are an assistant that writes concise summaries.",
+      "template": "Summarize the following ticket:\n\n{input}\n",
+      "few_shot": []
+    },
+    "model": {
+      "provider": "mock",
+      "name": "mock-summarizer",
+      "version": "mock-2024-07-18",
+      "revision": null
+    },
+    "sampling": {
+      "temperature": 0.2,
+      "top_p": 1.0,
+      "max_tokens": 256,
+      "frequency_penalty": 0.0,
+      "presence_penalty": 0.0,
+      "stop": null,
+      "seed": 7
+    },
+    "evaluation": {
+      "embedding_model": "hashing-256",
+      "samples": 5,
+      "thresholds": {
+        "drift_warn": 0.15,
+        "drift_fail": 0.4
+      }
+    },
+    "inputs": [
+      "My order #123 never arrived and support has not replied in a week."
+    ]
+  },
+  "runtime": {
+    "provider": "mock",
+    "model_name": "mock-summarizer",
+    "model_version": "mock-2024-07-18",
+    "model_revision": null,
+    "system_fingerprint": "fp_mock_6ca75b37",
+    "seed": 7,
+    "embedding_model": "hashing-256",
+    "platform": "Windows-11-10.0.26300-SP0",
+    "library_versions": {
+      "python": "3.12.10",
+      "numpy": "2.5.0",
+      "yaml": "6.0.3",
+      "typer": "0.26.7",
+      "rich": "unknown"
+    }
+  },
+  "samples": [
+    {
+      "output": "The customer reports that order 123 never arrived and support has not responded for a week.",
+      "tokens": 16,
+      "latency_ms": 1
+    },
+    {
+      "output": "The customer reports that order 123 never arrived and support has not responded for a week.",
+      "tokens": 16,
+      "latency_ms": 1
+    },
+    {
+      "output": "Order 123 was not delivered, and the customer is frustrated by a week of support silence.",
+      "tokens": 16,
+      "latency_ms": 1
+    },
+    {
+      "output": "Order 123 was not delivered, and the customer is frustrated by a week of support silence.",
+      "tokens": 16,
+      "latency_ms": 1
+    },
+    {
+      "output": "Order 123 was not delivered, and the customer is frustrated by a week of support silence.",
+      "tokens": 16,
+      "latency_ms": 1
+    }
+  ],
+  "metrics": {
+    "stability": 0.7182
+  }
+}
