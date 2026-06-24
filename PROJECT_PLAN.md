@@ -34,24 +34,24 @@ Guiding principle for a one-day build: protect the minimum viable product (MVP) 
 
 ## 2. Architecture
 
-The tool is a single local command-line application. Git is the versioning and storage backend. There is no server, no network API, and no web interface; all execution is local.
+The tool is a single local command-line application with a small, task-oriented command set. Versioning is automatic, and Git is an internal storage backend that users never invoke directly. There is no server, no network API, and no web interface; all execution is local.
 
 ```mermaid
 flowchart TD
-    A["Inference spec<br/>prompt, model, sampling, eval"] --> B["Git: versioned spec"]
+    A["Inference spec<br/>prompt, model, sampling, eval"] --> B["Behavior store<br/>automatic versioning, Git-backed"]
     B --> C["Runner"]
     C --> D["LLM provider<br/>hosted or local"]
     D --> E["Outputs x N<br/>plus runtime metadata"]
     E --> F["Embedding model"]
     F --> G["Metrics engine"]
-    G --> H["Run record<br/>committed to Git"]
-    H --> I["Compare two refs"]
+    G --> H["Version saved<br/>v1, v2, ..."]
+    H --> I["Compare two versions"]
     I --> J["Terminal report<br/>config diff, drift, stability, verdict"]
 ```
 
-Pipeline: versioned specification, then runner, then language model, then outputs with runtime capture, then embedding, then drift and stability, then Git, then terminal report.
+Pipeline: versioned specification, then runner, then language model, then outputs with runtime capture, then embedding, then drift and stability, then the behavior store, then terminal report.
 
-The unit of versioning is the inference specification. A version of AI behavior is a Git commit, or tag, of that specification together with the run record produced when it was executed.
+The unit of versioning is the inference specification. A version of AI behavior is an automatically captured snapshot - the specification together with its run record - stored durably in the Git-backed behavior store and referred to by a simple name such as v1 or v2. Users never run Git commands.
 
 ---
 
@@ -60,7 +60,7 @@ The unit of versioning is the inference specification. A version of AI behavior 
 | Layer | Choice | Rationale |
 |---|---|---|
 | Command-line interface | Python with Typer and Rich | Rapid development; formatted tables and diffs in the terminal |
-| Versioning and storage | Git, accessed through GitPython or subprocess | Provides history, diff, and blame without custom infrastructure |
+| Versioning and storage | Git (via subprocess), hidden behind the tool | Durable, recoverable version history with no version-control commands for the user |
 | Inference | A provider interface over a hosted model (OpenAI) or a local runtime (Ollama), with a mock mode | Enables fully local or offline operation and isolates the model behind one interface |
 | Embeddings | Built-in hashing embedder by default; sentence-transformers or a hosted model optionally | Required for semantic drift; the default keeps the tool fully offline with no model download |
 | Metrics | numpy and difflib | Cosine similarity, variance, and text difference |
@@ -74,7 +74,7 @@ The language model and the embedder sit behind a single provider interface that 
 
 Every input that determines model behavior at runtime is recorded so that no variable is left untracked. This is the foundation for establishing causality (Section 8).
 
-A specification is a single YAML file under version control:
+A specification is a single YAML file you edit:
 
 ```yaml
 # specs/summarization.yaml — a fully versioned inference specification
@@ -91,9 +91,9 @@ prompt:
   few_shot: []
 
 model:
-  provider: openai                  # openai | ollama | huggingface | ...
-  name: gpt-4o-mini
-  version: gpt-4o-mini-2024-07-18   # pinned snapshot, never a floating alias
+  provider: mock                    # mock | openai | ollama
+  name: mock-summarizer
+  version: mock-2024-07-18          # pinned snapshot, never a floating alias
   revision: null                    # model commit or revision hash for open-weight models
 
 sampling:
@@ -106,8 +106,8 @@ sampling:
   seed: 7                           # pinned for reproducibility
 
 evaluation:
-  embedding_model: all-MiniLM-L6-v2
-  samples: 3                        # N samples per version, used for stability
+  embedding_model: hashing-256      # offline default; swap for a sentence-transformers id
+  samples: 5                        # N samples per version, used for stability
   thresholds:
     drift_warn: 0.15
     drift_fail: 0.40
@@ -125,7 +125,7 @@ Tracked fields, by category:
 
 ### What is tracked
 
-The specification (versioned in Git) and the runtime capture (recorded at execution) together cover every input to inference:
+The specification you write and the runtime capture recorded at execution together cover every input to inference:
 
 ```mermaid
 classDiagram
@@ -180,33 +180,35 @@ classDiagram
     InferenceSpec ..> RuntimeCapture : captured at run time
 ```
 
-Everything above the runtime boundary is versioned in the specification file; the runtime capture is written into the run record at execution and committed alongside it.
+Everything above the runtime boundary lives in the specification file you edit; the runtime capture is recorded automatically at execution and saved alongside it as part of the version.
 
 ---
 
 ## 5. Runtime Capture and Git Storage
 
-Execution records every observable property of the inference at runtime. The run record is committed to Git and keyed to the commit of the specification that produced it.
+Execution records every observable property of the inference at runtime. The run record is saved as a named version in the Git-backed behavior store, linked to the exact specification that produced it.
 
-Run record, committed under `runs/<spec-commit>/<spec-name>/result.json`:
+Run record, saved as `.aiver/versions/<spec-name>/v2.json`:
 
 ```json
 {
   "spec": "summarization",
-  "spec_commit": "a1b2c3d",
+  "spec_fingerprint": "95d90d8547cd",
   "run_id": "2026-06-24T10:15:00Z-01",
   "runtime": {
-    "model_version": "gpt-4o-mini-2024-07-18",
+    "provider": "mock",
+    "model_name": "mock-summarizer",
+    "model_version": "mock-2024-07-18",
     "model_revision": null,
-    "system_fingerprint": "fp_57db8e1f",
+    "system_fingerprint": "fp_mock_6ca75b37",
     "seed": 7,
-    "embedding_model": "all-MiniLM-L6-v2",
-    "library_versions": { "openai": "1.40.0", "numpy": "2.1.0" }
+    "embedding_model": "hashing-256",
+    "library_versions": { "python": "3.12.10", "numpy": "2.5.0" }
   },
   "samples": [
-    { "output": "...", "tokens": 142, "latency_ms": 530 }
+    { "output": "...", "tokens": 14, "latency_ms": 1 }
   ],
-  "metrics": { "stability": 0.92 }
+  "metrics": { "stability": 0.72 }
 }
 ```
 
@@ -216,16 +218,16 @@ Repository layout, with Git as the backend:
 
 ```
 specs/
-  summarization.yaml          # versioned inference specification
-runs/
-  <spec-commit>/
+  summarization.yaml          # the spec you edit (the working version)
+.aiver/                       # hidden, Git-backed behavior store
+  index.json                  # version list per spec
+  versions/
     summarization/
-      result.json             # outputs, runtime metadata, metrics
-evals/
-  config.yaml                 # shared thresholds and defaults (optional)
+      v1.json                 # captured spec, outputs, runtime metadata, metrics
+      v2.json
 ```
 
-Because specifications and run records are ordinary files in Git, history, diff, and blame are available directly. Comparing two versions means comparing two Git references; the tool does not reimplement version control.
+Because versions are ordinary files under `.aiver`, the Git backend provides durable, recoverable history for free. Users never run Git; they refer to versions by simple names such as `v1` and `v2`, and the tool reads the records directly.
 
 ---
 
@@ -252,43 +254,68 @@ Outputs are embedded as vectors and compared with cosine similarity, cos(a, b) =
 
 ## 7. Command-Line Interface
 
-The interface follows the Git model so that the workflow is familiar.
+The commands are task-oriented, not version-control plumbing. Versioning is automatic: every run captures a named version (`v1`, `v2`, and so on). There is no init, staging, commit, tagging, or refs to learn, and Git stays hidden as the storage backend.
 
-| Command | Git analogue | Purpose |
-|---|---|---|
-| `aiver init` | `git init` | Initialize the behavior repository and the example specification |
-| `aiver status` | `git status` | Show whether the working specification differs from the last committed snapshot |
-| `aiver commit` | `git commit` | Execute the specification, capture runtime metadata, and record a behavior snapshot |
-| `aiver log` | `git log` | List the history of behavior snapshots |
-| `aiver show <ref>` | `git show` | Show a version's specification, runtime capture, and metrics |
-| `aiver diff <refA> <refB>` | `git diff` | Compare two versions: configuration difference, output difference, semantic drift, stability, and verdict |
-| `aiver blame <refA> <refB>` | `git blame` | Attribute a behavioral change to the configuration difference (Section 8) |
-| `aiver tag <name> [ref]` | `git tag` | Name a version, for example `v1` or `v2` |
-| `aiver checkout <ref>` | `git checkout` | Restore the working specification to a version |
+| Command | Purpose |
+|---|---|
+| `aiver run` | Run the specification and capture its behavior as a new version |
+| `aiver compare [A] [B]` | Compare two versions - output difference, semantic drift, stability, verdict (defaults to the last two) |
+| `aiver explain [A] [B]` | Explain why behavior changed: attribute it to the configuration difference (Section 8) |
+| `aiver history` | List captured versions and their stability |
+| `aiver inspect [version]` | Show one version's specification, runtime capture, and outputs |
+| `aiver tree` | Visualize how behavior evolves across versions (terminal tree or exported Mermaid) |
 
-All output is rendered in the terminal. There is no web or graphical interface.
+Versions are referred to by simple names (`v1`, `v2`) or the shortcuts `last` and `prev`, and they form a tree: every run records its parent, and `aiver run --from v1` starts a new branch from an earlier version. All output is rendered in the terminal; there is no web or graphical interface.
 
 Example session:
 
 ```
-$ aiver commit -m "baseline" --tag v1
-Behavior committed  a1b2c3d09f   stability 0.92
+$ aiver run
+Created specs/summarization.yaml. Edit it, then run aiver run again.
 
-$ aiver commit -m "raise temperature" --tag v2
-Behavior committed  b2c3d4e1a0   stability 0.71
+$ aiver run
+Captured v1   stability 0.72
 
-$ aiver diff v1 v2
-Configuration difference
+# raise the temperature in specs/summarization.yaml
+
+$ aiver run
+Captured v2   stability 0.53
+
+$ aiver compare
+summarization   v1 vs v2
+What changed in the configuration
   sampling.temperature: 0.2 -> 0.9
-Output difference: 0.41
-Semantic drift:    0.27   (warn)
-Stability:         A 0.92  ->  B 0.71
-Verdict: Behavior Drift
+Output difference: 0.61
+Semantic drift:    0.42  (warn 0.15, fail 0.40)
+Stability v1: 0.72    Stability v2: 0.53
+Verdict: Likely Regression
 
-$ aiver blame v1 v2
-Cause:  the change is attributable to sampling.temperature
-Effect: drift 0.27, stability change -0.21 -> Behavior Drift
+$ aiver explain
+Cause:  sampling.temperature (0.2 -> 0.9)
+Effect: semantic drift 0.42, stability change -0.19 -> Likely Regression
 ```
+
+### Visualizing evolution
+
+`aiver tree` renders the version history as a tree, annotated with what changed and the resulting drift; `aiver tree -o evolution.md` exports the same as a Mermaid diagram, color-coded by verdict:
+
+```mermaid
+graph TD
+    v1["v1<br/>stability 0.72"]
+    v2["v2<br/>stability 0.53"]
+    v3["v3<br/>stability 0.72"]
+    v1 -->|"sampling.temperature: 0.2->0.9<br/>drift 0.42"| v2
+    v1 -->|"prompt.system changed<br/>drift 0.00"| v3
+    class v1 baseline
+    class v2 regression
+    class v3 consistent
+    classDef baseline fill:#e2e3e5,stroke:#6c757d,color:#000
+    classDef consistent fill:#d4edda,stroke:#28a745,color:#000
+    classDef drift fill:#fff3cd,stroke:#ffc107,color:#000
+    classDef regression fill:#f8d7da,stroke:#dc3545,color:#000
+```
+
+Here v2 and v3 are independent branches from v1: raising the temperature regressed stability, while changing the prompt did not.
 
 ---
 
@@ -313,11 +340,11 @@ Approximately eight to nine hours, organized by component and parallelizable acr
 
 | Time | Versioning and runtime | Metrics and interface |
 |---|---|---|
-| 0:00-1:00 | Define the specification schema; implement the Git layer and `aiver init` | Scaffold the CLI with Typer and Rich; implement the mock provider |
-| 1:00-2:30 | Runner: N samples and full runtime capture; commit run records | Embedding integration with batched calls |
-| 2:30-3:30 | `aiver commit` end to end; seed example specifications | Metrics engine: difference, drift, stability, verdict |
-| 3:30-4:30 | Specification diff and run lookup across Git references | `aiver diff` report rendering in the terminal |
-| 4:30-6:00 | `aiver blame` attribution and confounded-comparison detection | `aiver log` and `aiver show` |
+| 0:00-1:00 | Specification schema; behavior store (automatic versioning, Git-backed) | Scaffold the CLI with Typer and Rich; implement the mock provider |
+| 1:00-2:30 | Runner: N samples and full runtime capture; `aiver run` end to end | Embedding integration with batched calls |
+| 2:30-3:30 | Version resolution and record lookup; seed example specifications | Metrics engine: difference, drift, stability, verdict |
+| 3:30-4:30 | Specification diff between versions | `aiver compare` report rendering in the terminal |
+| 4:30-6:00 | `aiver explain` attribution and confounded-comparison detection | `aiver history` and `aiver inspect` |
 | 6:00-7:00 | Edge cases; threshold tuning; prepare a clear demonstration example | Output polish: tables, colors, and wording |
 | 7:00-8:00 | Stretch: Git notes or multiple inputs | Stretch: drift trend across versions |
 | 8:00-9:00 | Demonstration rehearsal and buffer | Demonstration rehearsal |
@@ -353,9 +380,9 @@ For a single contributor, implement the components in MVP order and rely on mock
 ## 12. Demonstration Script (approximately two minutes)
 
 1. Context: code has Git, but AI behavior has no equivalent versioning layer.
-2. Show specification version one and run it; display the outputs and metrics.
-3. Change a single sampling field, for example the temperature, commit version two, and run it.
-4. Run `aiver diff v1 v2` and `aiver blame v1 v2`: semantic drift rises and stability falls, attributed to the single configuration change.
+2. Run the specification with `aiver run`; show the captured version (v1) and its stability.
+3. Change a single field, for example the temperature, and run `aiver run` again to capture v2.
+4. Run `aiver compare` and `aiver explain`: semantic drift rises and stability falls, attributed to the single configuration change.
 5. Close: the tool versions the entire inference specification and attributes every behavioral change to a specific configuration change.
 
 ---
@@ -370,13 +397,13 @@ pip install -e .
 pip install -e ".[openai]"        # optional, for hosted models
 pip install -e ".[local]"         # optional, for local sentence-transformers embeddings
 
-# Initialize and run
-aiver init
-aiver commit -m "baseline" --tag v1
+# Capture and compare versions (versioning is automatic)
+aiver run                 # first run scaffolds an example spec
+aiver run                 # captures v1
 # change one field in specs/summarization.yaml (for example, temperature), then:
-aiver commit -m "experiment" --tag v2
-aiver diff v1 v2
-aiver blame v1 v2
+aiver run                 # captures v2
+aiver compare             # v1 vs v2
+aiver explain             # what caused the change
 ```
 
 The tool runs entirely offline by default (mock provider and a built-in hashing embedder). Set the provider to a local runtime (Ollama) for local models, or supply `OPENAI_API_KEY` only when using a hosted model.
@@ -386,8 +413,9 @@ The tool runs entirely offline by default (mock provider and a built-in hashing 
 ## 14. Definition of Done (MVP)
 
 - [ ] A specification captures the prompt, the model identity and version, the sampling settings, and the evaluation configuration.
-- [ ] Execution records runtime metadata (model version and revision, system fingerprint, seed, library versions) and commits the run to Git, keyed to the specification commit.
-- [ ] `aiver diff` reports the configuration difference, output difference, semantic drift, stability, and a verdict.
-- [ ] `aiver blame` attributes a behavioral change to the configuration difference and flags confounded comparisons.
+- [ ] Execution records runtime metadata (model version and revision, system fingerprint, seed, library versions) and saves the version durably in the Git-backed store.
+- [ ] `aiver compare` reports the configuration difference, output difference, semantic drift, stability, and a verdict.
+- [ ] `aiver explain` attributes a behavioral change to the configuration difference and flags confounded comparisons.
+- [ ] `aiver tree` visualizes the version evolution (terminal tree and exported Mermaid), with branches via `aiver run --from`.
 - [ ] The tool runs end to end offline through mock or local mode.
 - [ ] A rehearsed two-minute demonstration that lands the closing statement.

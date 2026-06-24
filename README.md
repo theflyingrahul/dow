@@ -1,9 +1,10 @@
 # aiver - AI Behavior Versioning
 
-Git for AI behavior. Version the complete inference specification (prompt, model
-identity and version, sampling settings, evaluation configuration), execute it,
-and measure semantic drift, stability, and regressions between versions - with
-causal attribution.
+Track how your AI's behavior changes across versions. Version the complete
+inference specification (prompt, model identity and version, sampling settings,
+evaluation configuration), execute it, and measure semantic drift, stability, and
+regressions between versions - with causal attribution. Versioning is automatic
+and Git is a hidden storage backend; you never run git commands.
 
 See [PROJECT_PLAN.md](PROJECT_PLAN.md) for the full design.
 
@@ -22,19 +23,21 @@ pip install -e ".[openai]"        # hosted models and embeddings
 pip install -e ".[local]"         # local sentence-transformers embeddings
 ```
 
-## Use (mirrors git)
+## Use
 
 ```bash
-aiver init                        # initialize a behavior repo (+ example spec)
-aiver commit -m "baseline" -t v1  # run the spec and record a behavior snapshot
+aiver run            # first run scaffolds specs/summarization.yaml; run again to capture v1
 # edit specs/summarization.yaml (e.g. change temperature)
-aiver commit -m "experiment" -t v2
-aiver diff v1 v2                  # config diff + output diff + drift + stability + verdict
-aiver blame v1 v2                 # attribute the change to a configuration field
-aiver log                         # history of snapshots
-aiver show v2                     # spec + runtime capture + metrics
-aiver status                      # working spec vs last snapshot
+aiver run            # captures v2
+aiver compare        # v1 vs v2: output diff + drift + stability + verdict (defaults to last two)
+aiver explain        # why behavior changed: attributes it to a config field
+aiver history        # list captured versions and their stability
+aiver inspect v1     # one version's spec, runtime capture, and outputs
+aiver tree           # visualize how behavior evolves across versions
+aiver tree -o evolution.md   # export a Mermaid diagram; open the Markdown preview
 ```
 
-Runs fully offline by default (mock provider + built-in hashing embedder); no API
-key required.
+Versions are named automatically (v1, v2, ...); refer to them by name or the
+shortcuts `last` and `prev`. They form a tree - `aiver run --from v1` branches
+from an earlier version. Runs fully offline by default (mock provider +
+built-in hashing embedder); no API key required.

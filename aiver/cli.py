@@ -1,5 +1,8 @@
-"""aiver command-line interface - the commands mirror git as closely as possible."""
-import json
+"""aiver command-line interface.
+
+Task-oriented commands focused on behavioral analysis. Versioning is automatic
+and the Git-backed store is hidden - there is no init, staging, commit, or refs.
+"""
 from pathlib import Path
 from typing import Optional
 
@@ -7,16 +10,19 @@ import typer
 
 from . import report
 from .embeddings import get_embedder
-from .gitstore import GitError, GitStore
 from .metrics import output_difference, semantic_drift, stability
 from .metrics import verdict as compute_verdict
 from .runner import execute
 from .spec import InferenceSpec, flatten
+from .store import Store
 
-app = typer.Typer(add_completion=False, help="AI Behavior Versioning - Git for AI behavior.")
+app = typer.Typer(
+    add_completion=False,
+    help="AI Behavior Versioning - track how your AI's behavior changes across versions.",
+)
 
 SPECS_DIR = "specs"
-RUNS_DIR = "runs"
+EXAMPLE_NAME = "summarization"
 
 EXAMPLE_SPEC = """# specs/summarization.yaml - a fully versioned inference specification
 spec_version: 1
@@ -65,41 +71,43 @@ def _root() -> Path:
     return Path.cwd()
 
 
-def _git() -> GitStore:
-    return GitStore(_root())
-
-
-def _require_repo(git: GitStore) -> None:
-    if not git.is_repo():
-        raise typer.BadParameter("Not an aiver repository. Run 'aiver init' first.")
-
-
-def _resolve_spec_name(name: Optional[str]) -> str:
-    if name:
-        return Path(name).stem
-    runs = _root() / RUNS_DIR
-    if runs.is_dir():
-        subs = [p.name for p in runs.iterdir() if p.is_dir()]
-        if len(subs) == 1:
-            return subs[0]
-    specs = _root() / SPECS_DIR
-    if specs.is_dir():
-        files = list(specs.glob("*.yaml"))
-        if len(files) == 1:
-            return files[0].stem
-    raise typer.BadParameter("Multiple or no specs found; pass --spec NAME.")
+def _specs_dir() -> Path:
+    return _root() / SPECS_DIR
 
 
 def _spec_path(name: str) -> Path:
-    return _root() / SPECS_DIR / f"{name}.yaml"
+    return _specs_dir() / f"{name}.yaml"
 
 
-def _head_path(name: str) -> str:
-    return f"{RUNS_DIR}/{name}/HEAD.json"
+def _spec_files() -> list:
+    d = _specs_dir()
+    return sorted(d.glob("*.yaml")) if d.is_dir() else []
 
 
-def _load_record_at(git: GitStore, name: str, ref: str) -> dict:
-    return json.loads(git.show_file(ref, _head_path(name)))
+def _find_spec_name(name: Optional[str]) -> Optional[str]:
+    if name:
+        return Path(name).stem
+    files = _spec_files()
+    if len(files) == 1:
+        return files[0].stem
+    if len(files) > 1:
+        names = ", ".join(f.stem for f in files)
+        raise typer.BadParameter(f"Multiple specs found; pass --spec NAME. Found: {names}")
+    return None
+
+
+def _need_spec(name: Optional[str]) -> str:
+    resolved = _find_spec_name(name)
+    if not resolved:
+        raise typer.BadParameter("No spec found. Run 'aiver run' to get started.")
+    return resolved
+
+
+def _resolve(store: Store, name: str, ref: str) -> str:
+    try:
+        return store.resolve(name, ref)
+    except ValueError as exc:
+        raise typer.BadParameter(str(exc))
 
 
 def _config_diff(a_cfg: dict, b_cfg: dict) -> dict:
@@ -111,9 +119,22 @@ def _config_diff(a_cfg: dict, b_cfg: dict) -> dict:
     return diff
 
 
-def _compare(git: GitStore, name: str, ref_a: str, ref_b: str):
-    a = _load_record_at(git, name, ref_a)
-    b = _load_record_at(git, name, ref_b)
+def _resolve_pair(store: Store, name: str, a: Optional[str], b: Optional[str]):
+    versions = store.list_versions(name)
+    if a is None and b is None:
+        if len(versions) < 2:
+            raise typer.BadParameter(
+                "Need at least two versions. Change your spec and run 'aiver run' again."
+            )
+        return versions[-2]["id"], versions[-1]["id"]
+    if b is None:
+        return _resolve(store, name, a), versions[-1]["id"]
+    return _resolve(store, name, a), _resolve(store, name, b)
+
+
+def _compare(store: Store, name: str, a_id: str, b_id: str):
+    a = store.get_record(name, a_id)
+    b = store.get_record(name, b_id)
     a_out = [s["output"] for s in a["samples"]]
     b_out = [s["output"] for s in b["samples"]]
     embedder = get_embedder(b["config"]["evaluation"]["embedding_model"])
@@ -128,165 +149,155 @@ def _compare(git: GitStore, name: str, ref_a: str, ref_b: str):
 
 
 # --------------------------------------------------------------------------- #
-# commands (mirror git)
+# commands
 # --------------------------------------------------------------------------- #
 @app.command()
-def init() -> None:
-    """Initialize a behavior repository, like 'git init'."""
-    root = _root()
-    (root / SPECS_DIR).mkdir(exist_ok=True)
-    (root / RUNS_DIR).mkdir(exist_ok=True)
-    gitignore = root / ".gitignore"
-    if not gitignore.exists():
-        gitignore.write_text(".venv/\n__pycache__/\n*.pyc\n", encoding="utf-8")
-    created = False
-    example = _spec_path("summarization")
-    if not example.exists():
-        example.write_text(EXAMPLE_SPEC, encoding="utf-8")
-        created = True
-
-    git = _git()
-    git.init()
-    git.add("-A")
-    try:
-        sha = git.commit("aiver: initialize behavior repository")
-        report.console.print(f"[green]Initialized[/green] at {root} (commit {sha[:10]})")
-    except GitError as exc:
-        report.console.print(f"[yellow]{exc}[/yellow]")
-    if created:
-        report.console.print("  example spec: specs/summarization.yaml")
-
-
-@app.command()
-def commit(
-    spec: Optional[str] = typer.Option(None, "--spec", "-s", help="Spec name."),
-    message: Optional[str] = typer.Option(None, "--message", "-m", help="Commit message."),
-    tag: Optional[str] = typer.Option(None, "--tag", "-t", help="Tag this snapshot, e.g. v1."),
+def run(
+    spec: Optional[str] = typer.Argument(None, help="Spec file or name (optional)."),
+    message: Optional[str] = typer.Option(None, "--message", "-m", help="Short note for this version."),
+    from_: Optional[str] = typer.Option(None, "--from", help="Branch from an earlier version instead of the latest."),
 ) -> None:
-    """Execute the spec and record a behavior snapshot, like 'git commit'."""
-    git = _git()
-    _require_repo(git)
-    name = _resolve_spec_name(spec)
-    record = execute(InferenceSpec.load(_spec_path(name)))
+    """Run your spec and capture its behavior as a new version."""
+    files = _spec_files()
+    if not files and not spec:
+        _specs_dir().mkdir(parents=True, exist_ok=True)
+        _spec_path(EXAMPLE_NAME).write_text(EXAMPLE_SPEC, encoding="utf-8")
+        report.console.print(
+            f"[green]Created[/green] specs/{EXAMPLE_NAME}.yaml. "
+            "Edit it, then run [bold]aiver run[/bold] again."
+        )
+        return
 
-    runs_dir = _root() / RUNS_DIR / name
-    runs_dir.mkdir(parents=True, exist_ok=True)
-    (runs_dir / "HEAD.json").write_text(json.dumps(record, indent=2), encoding="utf-8")
-    history = record["run_id"].replace(":", "-")
-    (runs_dir / f"{history}.json").write_text(json.dumps(record, indent=2), encoding="utf-8")
+    name = _need_spec(spec)
+    path = _spec_path(name)
+    if not path.exists():
+        raise typer.BadParameter(f"Spec not found: {path}")
 
-    git.add("-A")
-    msg = message or f"aiver: {name} run (stability {record['metrics']['stability']:.3f})"
-    sha = git.commit(msg)
-    tagged = None
-    if tag:
-        git.tag(tag, sha)
-        tagged = tag
-    report.print_commit_summary(record, sha, tagged)
+    store = Store(_root())
+    store.ensure()
+    prior = store.list_versions(name)
+    parent = _resolve(store, name, from_) if from_ else None
+    record = execute(InferenceSpec.load(path))
+    note = ""
+    if prior and prior[-1]["fingerprint"] == record["spec_fingerprint"]:
+        note = f"same configuration as {prior[-1]['id']} - re-running measures non-determinism"
+    vid = store.add_version(name, record, message or "", parent=parent)
+    report.print_run(record, vid, note)
+    if prior:
+        report.console.print("  next: [bold]aiver compare[/bold]  or  [bold]aiver tree[/bold]")
 
 
 @app.command()
-def status(spec: Optional[str] = typer.Option(None, "--spec", "-s")) -> None:
-    """Show whether the working spec differs from the last snapshot, like 'git status'."""
-    git = _git()
-    _require_repo(git)
-    name = _resolve_spec_name(spec)
-    work_fp = InferenceSpec.load(_spec_path(name)).fingerprint()
-    try:
-        rec = _load_record_at(git, name, "HEAD")
-        head_fp = rec.get("spec_fingerprint")
-        if head_fp == work_fp:
+def compare(
+    a: Optional[str] = typer.Argument(None, help="First version (default: previous)."),
+    b: Optional[str] = typer.Argument(None, help="Second version (default: latest)."),
+    spec: Optional[str] = typer.Option(None, "--spec", "-s"),
+) -> None:
+    """Compare two versions: outputs, drift, stability, and a verdict."""
+    name = _need_spec(spec)
+    store = Store(_root())
+    a_id, b_id = _resolve_pair(store, name, a, b)
+    cfg_diff, outdiff, drift, stab_a, stab_b, label, thr = _compare(store, name, a_id, b_id)
+    report.print_compare(name, a_id, b_id, cfg_diff, outdiff, drift, stab_a, stab_b, label, thr)
+
+
+@app.command()
+def explain(
+    a: Optional[str] = typer.Argument(None, help="First version (default: previous)."),
+    b: Optional[str] = typer.Argument(None, help="Second version (default: latest)."),
+    spec: Optional[str] = typer.Option(None, "--spec", "-s"),
+) -> None:
+    """Explain why behavior changed between two versions (causal attribution)."""
+    name = _need_spec(spec)
+    store = Store(_root())
+    a_id, b_id = _resolve_pair(store, name, a, b)
+    cfg_diff, _, drift, stab_a, stab_b, label, _ = _compare(store, name, a_id, b_id)
+    confounded = len(cfg_diff) > 1
+    report.print_explain(name, a_id, b_id, cfg_diff, confounded, label, drift, stab_b - stab_a)
+
+
+@app.command()
+def history(spec: Optional[str] = typer.Option(None, "--spec", "-s")) -> None:
+    """List captured versions and their stability."""
+    name = _need_spec(spec)
+    store = Store(_root())
+    versions = store.list_versions(name)
+    work_fp = (
+        InferenceSpec.load(_spec_path(name)).fingerprint()
+        if _spec_path(name).exists()
+        else None
+    )
+    report.print_history(name, versions, work_fp)
+
+
+@app.command()
+def inspect(
+    version: Optional[str] = typer.Argument(None, help="Version to show (default: latest)."),
+    spec: Optional[str] = typer.Option(None, "--spec", "-s"),
+) -> None:
+    """Show one version's spec, runtime capture, and outputs."""
+    name = _need_spec(spec)
+    store = Store(_root())
+    vid = _resolve(store, name, version or "last")
+    report.print_inspect(store.get_record(name, vid), vid)
+
+
+def _build_tree(store: Store, name: str) -> dict:
+    versions = store.list_versions(name)
+    if not versions:
+        return {"versions": [], "stab": {}, "parent_of": {}, "edges": {}}
+    records = {v["id"]: store.get_record(name, v["id"]) for v in versions}
+    last_id = versions[-1]["id"]
+    embedder = get_embedder(records[last_id]["config"]["evaluation"]["embedding_model"])
+    emb, stab = {}, {}
+    for v in versions:
+        outs = [s["output"] for s in records[v["id"]]["samples"]]
+        e = embedder.embed(outs)
+        emb[v["id"]] = e
+        stab[v["id"]] = stability(e)
+    order = [v["id"] for v in versions]
+    parent_of, edges = {}, {}
+    for i, v in enumerate(versions):
+        vid = v["id"]
+        p = v["parent"] if "parent" in v else (order[i - 1] if i > 0 else None)
+        parent_of[vid] = p
+        if p and p in emb:
+            drift = semantic_drift(emb[p], emb[vid])
+            cfg = _config_diff(records[p]["config"], records[vid]["config"])
+            thresholds = records[vid]["config"]["evaluation"]["thresholds"]
+            label = compute_verdict(drift, stab[p], stab[vid], thresholds)
+            edges[vid] = {"drift": drift, "ds": stab[vid] - stab[p], "cfg": cfg, "verdict": label}
+    return {"versions": versions, "stab": stab, "parent_of": parent_of, "edges": edges}
+
+
+@app.command()
+def tree(
+    spec: Optional[str] = typer.Option(None, "--spec", "-s"),
+    mermaid: bool = typer.Option(False, "--mermaid", help="Output a Mermaid diagram instead of a terminal tree."),
+    output: Optional[str] = typer.Option(None, "--output", "-o", help="Write the Mermaid diagram to a Markdown file."),
+) -> None:
+    """Visualize how behavior evolves across versions."""
+    name = _need_spec(spec)
+    store = Store(_root())
+    data = _build_tree(store, name)
+    if not data["versions"]:
+        report.console.print("[yellow]No versions yet.[/yellow] Run [bold]aiver run[/bold] to start.")
+        return
+    if mermaid or output:
+        diagram = report.build_mermaid(
+            name, data["versions"], data["stab"], data["parent_of"], data["edges"]
+        )
+        if output:
+            Path(output).write_text(
+                f"# {name} behavior evolution\n\n```mermaid\n{diagram}\n```\n", encoding="utf-8"
+            )
             report.console.print(
-                f"[green]{name}: up to date[/green] (fingerprint {work_fp}); "
-                f"last stability {rec['metrics']['stability']:.3f}"
+                f"[green]Wrote[/green] {output}  (open the Markdown preview to view the tree)."
             )
         else:
-            report.console.print(
-                f"[yellow]{name}: spec modified since last behavior commit[/yellow]\n"
-                f"  committed {head_fp} -> working {work_fp}\n"
-                f"  run 'aiver commit' to record a new snapshot."
-            )
-    except GitError:
-        report.console.print(
-            f"[yellow]{name}: no behavior committed yet[/yellow] "
-            f"(working fingerprint {work_fp})"
-        )
-
-
-@app.command()
-def log(spec: Optional[str] = typer.Option(None, "--spec", "-s")) -> None:
-    """List the history of behavior snapshots, like 'git log'."""
-    git = _git()
-    _require_repo(git)
-    name = _resolve_spec_name(spec)
-    report.print_log(git.log(_head_path(name)))
-
-
-@app.command()
-def show(
-    ref: str = typer.Argument("HEAD"),
-    spec: Optional[str] = typer.Option(None, "--spec", "-s"),
-) -> None:
-    """Show a version's spec, runtime capture, and metrics, like 'git show'."""
-    git = _git()
-    _require_repo(git)
-    name = _resolve_spec_name(spec)
-    report.print_show(_load_record_at(git, name, ref), ref)
-
-
-@app.command()
-def diff(
-    ref_a: str = typer.Argument(..., help="Base version."),
-    ref_b: str = typer.Argument("HEAD", help="Compared version."),
-    spec: Optional[str] = typer.Option(None, "--spec", "-s"),
-) -> None:
-    """Compare two versions, like 'git diff'."""
-    git = _git()
-    _require_repo(git)
-    name = _resolve_spec_name(spec)
-    cfg_diff, outdiff, drift, stab_a, stab_b, label, thr = _compare(git, name, ref_a, ref_b)
-    report.print_diff(name, ref_a, ref_b, cfg_diff, outdiff, drift, stab_a, stab_b, label, thr)
-
-
-@app.command()
-def blame(
-    ref_a: str = typer.Argument(..., help="Base version."),
-    ref_b: str = typer.Argument("HEAD", help="Compared version."),
-    spec: Optional[str] = typer.Option(None, "--spec", "-s"),
-) -> None:
-    """Attribute a behavioral change to the configuration difference, like 'git blame'."""
-    git = _git()
-    _require_repo(git)
-    name = _resolve_spec_name(spec)
-    cfg_diff, _, drift, stab_a, stab_b, label, _ = _compare(git, name, ref_a, ref_b)
-    confounded = len(cfg_diff) > 1
-    report.print_blame(name, ref_a, ref_b, cfg_diff, confounded, label, drift, stab_b - stab_a)
-
-
-@app.command()
-def tag(
-    name: str = typer.Argument(..., help="Tag name, e.g. v1."),
-    ref: str = typer.Argument("HEAD"),
-) -> None:
-    """Name a version, like 'git tag'."""
-    git = _git()
-    _require_repo(git)
-    git.tag(name, ref)
-    report.console.print(f"[cyan]tagged[/cyan] {ref} as {name}")
-
-
-@app.command()
-def checkout(
-    ref: str = typer.Argument(..., help="Version to restore."),
-    spec: Optional[str] = typer.Option(None, "--spec", "-s"),
-) -> None:
-    """Restore the working spec to a version, like 'git checkout'."""
-    git = _git()
-    _require_repo(git)
-    name = _resolve_spec_name(spec)
-    content = git.show_file(ref, f"{SPECS_DIR}/{name}.yaml")
-    _spec_path(name).write_text(content, encoding="utf-8")
-    report.console.print(f"[green]checked out[/green] specs/{name}.yaml from {ref}")
+            report.console.print(f"```mermaid\n{diagram}\n```")
+    else:
+        report.print_tree(name, data["versions"], data["stab"], data["parent_of"], data["edges"])
 
 
 def main() -> None:
