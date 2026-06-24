@@ -19,7 +19,10 @@ from .store import Store
 
 app = typer.Typer(
     add_completion=False,
+    no_args_is_help=True,
+    context_settings={"help_option_names": []},
     help="Drift Observation Workbench - track how your AI's behavior changes across versions.",
+    epilog="Run 'dow help <command>' for a full description and examples, e.g. 'dow help run'.",
 )
 
 SPECS_DIR = "specs"
@@ -206,13 +209,22 @@ def _auto_eval(store: Store, name: str, vid: str) -> None:
 # --------------------------------------------------------------------------- #
 # commands
 # --------------------------------------------------------------------------- #
-@app.command()
+@app.command(
+    epilog='Examples:\n\ndow run\n\ndow run -m "lower temperature"\n\ndow run --from v1',
+)
 def run(
     spec: Optional[str] = typer.Argument(None, help="Spec file or name (optional)."),
     message: Optional[str] = typer.Option(None, "--message", "-m", help="Short note for this version."),
     from_: Optional[str] = typer.Option(None, "--from", help="Branch from an earlier version instead of the latest."),
 ) -> None:
-    """Run your spec and capture its behavior as a new version."""
+    """Run your spec and capture its behavior as a new version.
+
+    Executes every input in the spec and stores the outputs together with the full
+    runtime capture - model identity and version, sampling settings, and the resolved
+    prompt - as an automatically named version (v1, v2, ...). The first run scaffolds an
+    example spec and evals.py. Configured evaluators run automatically, and re-running an
+    unchanged spec measures non-determinism. Use --from to branch from an earlier version.
+    """
     files = _spec_files()
     if not files and not spec:
         _specs_dir().mkdir(parents=True, exist_ok=True)
@@ -246,13 +258,21 @@ def run(
         report.console.print("  next: [bold]dow compare[/bold]  or  [bold]dow eval[/bold]")
 
 
-@app.command()
+@app.command(
+    epilog="Examples:\n\ndow compare\n\ndow compare v1 v3\n\ndow compare good last",
+)
 def compare(
     a: Optional[str] = typer.Argument(None, help="First version (default: previous)."),
     b: Optional[str] = typer.Argument(None, help="Second version (default: latest)."),
     spec: Optional[str] = typer.Option(None, "--spec", "-s"),
 ) -> None:
-    """Compare two versions: outputs, drift, stability, and a verdict."""
+    """Compare two versions: outputs, drift, stability, and a verdict.
+
+    Reports which configuration fields differ, how much the outputs changed, the
+    semantic drift between the two versions, the stability of each, and an overall
+    verdict against the spec's thresholds. With no arguments, compares the previous
+    version against the latest.
+    """
     name = _need_spec(spec)
     store = Store(_root())
     a_id, b_id = _resolve_pair(store, name, a, b)
@@ -260,13 +280,21 @@ def compare(
     report.print_compare(name, a_id, b_id, cfg_diff, outdiff, drift, stab_a, stab_b, label, thr)
 
 
-@app.command()
+@app.command(
+    epilog="Examples:\n\ndow explain\n\ndow explain v1 v2",
+)
 def explain(
     a: Optional[str] = typer.Argument(None, help="First version (default: previous)."),
     b: Optional[str] = typer.Argument(None, help="Second version (default: latest)."),
     spec: Optional[str] = typer.Option(None, "--spec", "-s"),
 ) -> None:
-    """Explain why behavior changed between two versions (causal attribution)."""
+    """Explain why behavior changed between two versions (causal attribution).
+
+    Pairs the measured drift and stability change with the exact spec fields that
+    differ between the versions. If more than one field changed at once, the result
+    is flagged as confounded, since no single cause can be isolated. Defaults to the
+    previous version versus the latest.
+    """
     name = _need_spec(spec)
     store = Store(_root())
     a_id, b_id = _resolve_pair(store, name, a, b)
@@ -275,9 +303,14 @@ def explain(
     report.print_explain(name, a_id, b_id, cfg_diff, confounded, label, drift, stab_b - stab_a)
 
 
-@app.command()
+@app.command(epilog="Examples:\n\ndow history")
 def history(spec: Optional[str] = typer.Option(None, "--spec", "-s")) -> None:
-    """List captured versions and their stability."""
+    """List captured versions and their stability.
+
+    Shows every version in order with its stability score and any tags, and marks
+    whether your current working spec matches an existing version or is new since the
+    last run.
+    """
     name = _need_spec(spec)
     store = Store(_root())
     versions = store.list_versions(name)
@@ -289,12 +322,19 @@ def history(spec: Optional[str] = typer.Option(None, "--spec", "-s")) -> None:
     report.print_history(name, versions, work_fp)
 
 
-@app.command()
+@app.command(
+    epilog="Examples:\n\ndow inspect\n\ndow inspect v2\n\ndow inspect good",
+)
 def inspect(
     version: Optional[str] = typer.Argument(None, help="Version to show (default: latest)."),
     spec: Optional[str] = typer.Option(None, "--spec", "-s"),
 ) -> None:
-    """Show one version's spec, runtime capture, outputs, tags, and eval scores."""
+    """Show one version's spec, runtime capture, outputs, tags, and eval scores.
+
+    Prints the full versioned specification, the runtime capture (model, version,
+    sampling, resolved prompt), the generated outputs, any tags, and saved evaluation
+    scores. Defaults to the latest version; accepts a version name, last/prev, or a tag.
+    """
     name = _need_spec(spec)
     store = Store(_root())
     vid = _resolve(store, name, version or "last")
@@ -302,13 +342,20 @@ def inspect(
     report.print_inspect(store.get_record(name, vid), vid, tags)
 
 
-@app.command()
+@app.command(
+    epilog="Examples:\n\ndow tag good\n\ndow tag baseline v1",
+)
 def tag(
     label: str = typer.Argument(..., help="Free-form label, e.g. good, golden, baseline, bad."),
     version: Optional[str] = typer.Argument(None, help="Version to tag (default: latest)."),
     spec: Optional[str] = typer.Option(None, "--spec", "-s"),
 ) -> None:
-    """Tag a version with a free-form label (good, golden, baseline, ...)."""
+    """Tag a version with a free-form label (good, golden, baseline, ...).
+
+    Labels work anywhere a version is accepted - inspect, compare, eval, and so on.
+    The 'good' label additionally marks the known-good baseline that 'dow eval'
+    compares against. Defaults to tagging the latest version.
+    """
     name = _need_spec(spec)
     store = Store(_root())
     vid = _resolve(store, name, version or "last")
@@ -316,14 +363,23 @@ def tag(
     report.console.print(f"[green]tagged[/green] {vid} as [cyan]{label}[/cyan]")
 
 
-@app.command("eval")
+@app.command(
+    "eval",
+    epilog="Examples:\n\ndow eval\n\ndow eval v2 --rerun\n\ndow eval --good-tag golden",
+)
 def evaluate(
     version: Optional[str] = typer.Argument(None, help="Version to evaluate (default: latest)."),
     rerun: bool = typer.Option(False, "--rerun", help="Re-run evaluators even if results are saved."),
     good_tag: str = typer.Option("good", "--good-tag", help="Tag that marks the known-good baseline."),
     spec: Optional[str] = typer.Option(None, "--spec", "-s"),
 ) -> None:
-    """Run custom evaluators on a version; compare to the previous and last-good versions."""
+    """Run custom evaluators on a version; compare to the previous and last-good versions.
+
+    Executes the metrics declared under evaluation.metrics and reports each score next
+    to the previous version and the most recent version tagged 'good', so regressions
+    stand out. Results are saved with the version and reused unless --rerun is passed;
+    evaluators also run automatically on 'dow run'.
+    """
     name = _need_spec(spec)
     store = Store(_root())
     versions = store.list_versions(name)
@@ -375,13 +431,21 @@ def _build_tree(store: Store, name: str) -> dict:
     return {"versions": versions, "stab": stab, "parent_of": parent_of, "edges": edges}
 
 
-@app.command()
+@app.command(
+    epilog="Examples:\n\ndow tree\n\ndow tree -o evolution.md",
+)
 def tree(
     spec: Optional[str] = typer.Option(None, "--spec", "-s"),
     mermaid: bool = typer.Option(False, "--mermaid", help="Output a Mermaid diagram instead of a terminal tree."),
     output: Optional[str] = typer.Option(None, "--output", "-o", help="Write the Mermaid diagram to a Markdown file."),
 ) -> None:
-    """Visualize how behavior evolves across versions."""
+    """Visualize how behavior evolves across versions.
+
+    Renders the version lineage as a tree - the main line as a vertical trunk, with
+    branches created by 'dow run --from' off to the side - annotating each step with
+    its drift and stability change. Use --mermaid for a Mermaid gitGraph, or -o FILE to
+    write it to a Markdown file you can preview.
+    """
     name = _need_spec(spec)
     store = Store(_root())
     data = _build_tree(store, name)
@@ -403,6 +467,38 @@ def tree(
             report.console.print(f"```mermaid\n{diagram}\n```")
     else:
         report.print_tree(name, data["versions"], data["stab"], data["parent_of"], data["edges"])
+
+
+def _echo_help(command, ctx) -> None:
+    """Render a command's help. Typer prints the Rich help as a side effect of
+    get_help and returns an empty string; the echo covers any plain-text fallback."""
+    text = command.get_help(ctx)
+    if text:
+        typer.echo(text)
+
+
+@app.command(name="help")
+def help_command(
+    command: Optional[str] = typer.Argument(
+        None, help="Command to explain in detail, e.g. 'run'. Omit for the overview."
+    ),
+) -> None:
+    """Show detailed help for dow or one command (e.g. 'dow help run').
+
+    With no argument, lists every command. With a command name, prints that
+    command's full description, arguments, options, and usage examples.
+    """
+    cli = typer.main.get_command(app)
+    root_ctx = typer.Context(cli, info_name="dow", help_option_names=[])
+    if command is None:
+        _echo_help(cli, root_ctx)
+        return
+    sub = cli.get_command(root_ctx, command)
+    if sub is None:
+        raise typer.BadParameter(
+            f"No such command: {command!r}. Run 'dow help' to list commands."
+        )
+    _echo_help(sub, typer.Context(sub, info_name=command, parent=root_ctx, help_option_names=[]))
 
 
 def main() -> None:
