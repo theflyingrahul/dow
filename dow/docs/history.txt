@@ -1,0 +1,8 @@
+List captured versions and their stability.
+
+Shows every version in order with its stability score and any tags, and marks
+whether your current working spec matches an existing version or is new since the
+last run.
+
+@examples
+dow history

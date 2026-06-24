@@ -1,0 +1,10 @@
+Show one version's spec, runtime capture, outputs, tags, and eval scores.
+
+Prints the full versioned specification, the runtime capture (model, version,
+sampling, resolved prompt), the generated outputs, any tags, and saved evaluation
+scores. Defaults to the latest version; accepts a version name, last/prev, or a tag.
+
+@examples
+dow inspect
+dow inspect v2
+dow inspect good

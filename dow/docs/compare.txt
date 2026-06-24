@@ -1,0 +1,11 @@
+Compare two versions: outputs, drift, stability, and a verdict.
+
+Reports which configuration fields differ, how much the outputs changed, the
+semantic drift between the two versions, the stability of each, and an overall
+verdict against the spec's thresholds. With no arguments, compares the previous
+version against the latest.
+
+@examples
+dow compare
+dow compare v1 v3
+dow compare good last

@@ -1,0 +1,10 @@
+Explain why behavior changed between two versions (causal attribution).
+
+Pairs the measured drift and stability change with the exact spec fields that
+differ between the versions. If more than one field changed at once, the result
+is flagged as confounded, since no single cause can be isolated. Defaults to the
+previous version versus the latest.
+
+@examples
+dow explain
+dow explain v1 v2

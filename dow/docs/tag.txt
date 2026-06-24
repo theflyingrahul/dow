@@ -1,0 +1,9 @@
+Tag a version with a free-form label (good, golden, baseline, ...).
+
+Labels work anywhere a version is accepted - inspect, compare, eval, and so on.
+The 'good' label additionally marks the known-good baseline that 'dow eval'
+compares against. Defaults to tagging the latest version.
+
+@examples
+dow tag good
+dow tag baseline v1

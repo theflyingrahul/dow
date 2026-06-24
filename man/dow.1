@@ -1,0 +1,314 @@
+.TH DOW 1 "2026-06-24" "dow 0.1.0" "Drift Observation Workbench"
+.SH NAME
+dow \- track how your AI's behavior changes across versions
+.SH SYNOPSIS
+.B dow
+[\fICOMMAND\fR] [\fIARGS\fR]...
+.SH DESCRIPTION
+Drift Observation Workbench \- track how your AI's behavior changes across versions.
+.PP
+Versioning is automatic and Git is a hidden storage backend; you never run git commands. The tool runs fully offline by default.
+.SH COMMANDS
+.SS run
+.B dow run [OPTIONS] [SPEC]
+.PP
+Run your spec and capture its behavior as a new version.
+.PP
+Executes every input in the spec and stores the outputs together with the full
+runtime capture \- model identity and version, sampling settings, and the resolved
+prompt \- as an automatically named version (v1, v2, ...). The first run scaffolds an
+example spec and evals.py. Configured evaluators run automatically, and re\-running an
+unchanged spec measures non\-determinism. Use \-\-from to branch from an earlier version.
+.PP
+Arguments:
+.RS
+.TP
+.B SPEC
+Spec file or name (optional).
+.RE
+.PP
+Options:
+.RS
+.TP
+.B \-\-message, \-m
+Short note for this version.
+.TP
+.B \-\-from
+Branch from an earlier version instead of the latest.
+.RE
+.PP
+Examples:
+.RS
+.nf
+dow run
+dow run \-m "lower temperature"
+dow run \-\-from v1
+.fi
+.RE
+.PP
+.SS compare
+.B dow compare [OPTIONS] [A] [B]
+.PP
+Compare two versions: outputs, drift, stability, and a verdict.
+.PP
+Reports which configuration fields differ, how much the outputs changed, the
+semantic drift between the two versions, the stability of each, and an overall
+verdict against the spec's thresholds. With no arguments, compares the previous
+version against the latest.
+.PP
+Arguments:
+.RS
+.TP
+.B A
+First version (default: previous).
+.TP
+.B B
+Second version (default: latest).
+.RE
+.PP
+Options:
+.RS
+.TP
+.B \-\-spec, \-s
+(no description)
+.RE
+.PP
+Examples:
+.RS
+.nf
+dow compare
+dow compare v1 v3
+dow compare good last
+.fi
+.RE
+.PP
+.SS explain
+.B dow explain [OPTIONS] [A] [B]
+.PP
+Explain why behavior changed between two versions (causal attribution).
+.PP
+Pairs the measured drift and stability change with the exact spec fields that
+differ between the versions. If more than one field changed at once, the result
+is flagged as confounded, since no single cause can be isolated. Defaults to the
+previous version versus the latest.
+.PP
+Arguments:
+.RS
+.TP
+.B A
+First version (default: previous).
+.TP
+.B B
+Second version (default: latest).
+.RE
+.PP
+Options:
+.RS
+.TP
+.B \-\-spec, \-s
+(no description)
+.RE
+.PP
+Examples:
+.RS
+.nf
+dow explain
+dow explain v1 v2
+.fi
+.RE
+.PP
+.SS history
+.B dow history [OPTIONS]
+.PP
+List captured versions and their stability.
+.PP
+Shows every version in order with its stability score and any tags, and marks
+whether your current working spec matches an existing version or is new since the
+last run.
+.PP
+Options:
+.RS
+.TP
+.B \-\-spec, \-s
+(no description)
+.RE
+.PP
+Examples:
+.RS
+.nf
+dow history
+.fi
+.RE
+.PP
+.SS inspect
+.B dow inspect [OPTIONS] [VERSION]
+.PP
+Show one version's spec, runtime capture, outputs, tags, and eval scores.
+.PP
+Prints the full versioned specification, the runtime capture (model, version,
+sampling, resolved prompt), the generated outputs, any tags, and saved evaluation
+scores. Defaults to the latest version; accepts a version name, last/prev, or a tag.
+.PP
+Arguments:
+.RS
+.TP
+.B VERSION
+Version to show (default: latest).
+.RE
+.PP
+Options:
+.RS
+.TP
+.B \-\-spec, \-s
+(no description)
+.RE
+.PP
+Examples:
+.RS
+.nf
+dow inspect
+dow inspect v2
+dow inspect good
+.fi
+.RE
+.PP
+.SS tag
+.B dow tag [OPTIONS] LABEL [VERSION]
+.PP
+Tag a version with a free\-form label (good, golden, baseline, ...).
+.PP
+Labels work anywhere a version is accepted \- inspect, compare, eval, and so on.
+The 'good' label additionally marks the known\-good baseline that 'dow eval'
+compares against. Defaults to tagging the latest version.
+.PP
+Arguments:
+.RS
+.TP
+.B LABEL
+Free\-form label, e.g. good, golden, baseline, bad.
+.TP
+.B VERSION
+Version to tag (default: latest).
+.RE
+.PP
+Options:
+.RS
+.TP
+.B \-\-spec, \-s
+(no description)
+.RE
+.PP
+Examples:
+.RS
+.nf
+dow tag good
+dow tag baseline v1
+.fi
+.RE
+.PP
+.SS eval
+.B dow eval [OPTIONS] [VERSION]
+.PP
+Run custom evaluators on a version; compare to the previous and last\-good versions.
+.PP
+Executes the metrics declared under evaluation.metrics and reports each score next
+to the previous version and the most recent version tagged 'good', so regressions
+stand out. Results are saved with the version and reused unless \-\-rerun is passed;
+evaluators also run automatically on 'dow run'.
+.PP
+Arguments:
+.RS
+.TP
+.B VERSION
+Version to evaluate (default: latest).
+.RE
+.PP
+Options:
+.RS
+.TP
+.B \-\-rerun
+Re\-run evaluators even if results are saved.
+.TP
+.B \-\-good\-tag
+Tag that marks the known\-good baseline.
+.TP
+.B \-\-spec, \-s
+(no description)
+.RE
+.PP
+Examples:
+.RS
+.nf
+dow eval
+dow eval v2 \-\-rerun
+dow eval \-\-good\-tag golden
+.fi
+.RE
+.PP
+.SS tree
+.B dow tree [OPTIONS]
+.PP
+Visualize how behavior evolves across versions.
+.PP
+Renders the version lineage as a tree \- the main line as a vertical trunk, with
+branches created by 'dow run \-\-from' off to the side \- annotating each step with
+its drift and stability change. Use \-\-mermaid for a Mermaid gitGraph, or \-o FILE to
+write it to a Markdown file you can preview.
+.PP
+Options:
+.RS
+.TP
+.B \-\-spec, \-s
+(no description)
+.TP
+.B \-\-mermaid
+Output a Mermaid diagram instead of a terminal tree.
+.TP
+.B \-\-output, \-o
+Write the Mermaid diagram to a Markdown file.
+.RE
+.PP
+Examples:
+.RS
+.nf
+dow tree
+dow tree \-o evolution.md
+.fi
+.RE
+.PP
+.SS help
+.B dow help [OPTIONS] [COMMAND]
+.PP
+Show detailed help for dow or one command (e.g. 'dow help run').
+.PP
+With no argument, lists every command. With a command name, prints that
+command's full description, arguments, options, and usage examples.
+.PP
+Arguments:
+.RS
+.TP
+.B COMMAND
+Command to explain in detail, e.g. 'run'. Omit for the overview.
+.RE
+.PP
+.SS man
+.B dow man [OPTIONS]
+.PP
+Output dow's manual page in roff format, or install it so 'man dow' works.
+.PP
+With no options, prints the man page to stdout \- redirect it to a file or pipe it
+into 'man \-l \-'. With \-\-install, writes dow.1 into a man1 directory on your MANPATH
+(by default ~/.local/share/man/man1) so that 'man dow' renders the full documentation.
+.PP
+Options:
+.RS
+.TP
+.B \-\-install
+Write the page to a man directory so 'man dow' works.
+.TP
+.B \-\-dir
+Target man1 directory (default: ~/.local/share/man/man1).
+.RE
+.PP
+.SH SEE ALSO
+Run \fBdow help\fR or \fBdow help \fICOMMAND\fR for interactive help.

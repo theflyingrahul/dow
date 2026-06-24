@@ -24,3 +24,9 @@ dow = "dow.cli:main"
 
 [tool.setuptools]
 packages = ["dow"]
+
+[tool.setuptools.package-data]
+dow = ["docs/*.txt"]
+
+[tool.setuptools.data-files]
+"share/man/man1" = ["man/dow.1"]

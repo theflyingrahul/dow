@@ -1,0 +1,5 @@
+Output dow's manual page in roff format, or install it so 'man dow' works.
+
+With no options, prints the man page to stdout - redirect it to a file or pipe it
+into 'man -l -'. With --install, writes dow.1 into a man1 directory on your MANPATH
+(by default ~/.local/share/man/man1) so that 'man dow' renders the full documentation.

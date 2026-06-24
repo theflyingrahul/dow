@@ -1,0 +1,11 @@
+Run custom evaluators on a version; compare to the previous and last-good versions.
+
+Executes the metrics declared under evaluation.metrics and reports each score next
+to the previous version and the most recent version tagged 'good', so regressions
+stand out. Results are saved with the version and reused unless --rerun is passed;
+evaluators also run automatically on 'dow run'.
+
+@examples
+dow eval
+dow eval v2 --rerun
+dow eval --good-tag golden

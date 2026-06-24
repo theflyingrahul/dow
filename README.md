@@ -66,3 +66,24 @@ def avg_word_count(ctx):
 `dow eval` runs them, saves the scores with the version, and compares against
 the previous version and the last one you tagged (`dow tag good`). Evaluation
 is automatic on `dow run` and reused thereafter unless you pass `--rerun`.
+
+## Documentation and the manual page
+
+Each command's description and examples live in a single editable text file under
+`dow/docs/<command>.txt`. That one source feeds both `dow help <command>` (in the
+terminal) and the Unix man page, so they never drift apart. To document a new command
+or revise an existing one, edit (or add) its `dow/docs/<command>.txt` - no code changes
+needed - and both surfaces update automatically. (Options and arguments are read from
+the command's own definition, so those stay correct on their own.)
+
+`dow` also ships a Unix man page generated from those docs:
+
+- On Linux, macOS, or WSL, run `man dow` for the full documentation. A regular
+  `pip install` places the page on the man path; for an editable install
+  (`pip install -e .`), run `dow man --install` once to copy it to
+  `~/.local/share/man/man1`.
+- `dow man` prints the page (roff) to stdout - pipe it anywhere, e.g. `dow man | less`.
+- After editing docs, refresh the committed page with `dow man --install --dir man`.
+
+On Windows PowerShell, `man` is an alias for `Get-Help` and will not render this
+page; use WSL or Git Bash for `man dow`, or read it directly with `dow man`.
