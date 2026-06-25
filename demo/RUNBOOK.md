@@ -2,8 +2,8 @@
 
 The full lifecycle on one page: install the package, start a project with
 `dow init`, evolve a real chatbot through several versions with `dow commit`, test
-and analyze the drift, and open the live web dashboard. Run one block at a time
-(e.g. for a screen capture). Fully offline - no API key required.
+and analyze the drift, and explore (and drive) the interactive web dashboard. Run
+one block at a time (e.g. for a screen capture). Fully offline - no API key required.
 
 ## 0. Install dow (once)
 
@@ -157,7 +157,7 @@ dow tree -o evolution.md      # then open evolution.md and "Open Preview" for th
 
 The same store, visualized. This opens your browser automatically and serves the
 live `.dow` store (localhost only; spec edits and captures from the UI are
-accepted from the local machine only). Press Ctrl+C to stop the server.
+accepted from the local machine only). `dow dash` is a shorthand. Press Ctrl+C to stop the server.
 
 ```powershell
 dow dashboard
@@ -172,16 +172,20 @@ On screen, walk through:
 - **Compare** - pick A = `baseline`, B = `golden` for the drift-score gauge and the
   pass / warn / fail verdict (the same engine as `dow compare`).
 - **Metrics cards** - stability and the evaluator scores at a glance.
+- **Edit spec + capture from the UI** - tweak the spec and click capture to record a
+  new version without leaving the browser.
 
-Live-update flourish (optional): leave the dashboard running, capture another
-version from a **second terminal**, then click **Refresh** in the browser to watch
-it appear.
+Capture a version live - from the UI, or from a second terminal and hit **Refresh**:
 
 ```powershell
-# in a new terminal
+# optional: in a new terminal, then click Refresh in the browser
 cd C:\Users\t-pmurugaraj\code\dow\demo
 dow commit -m "live demo run"
 ```
+
+> Tip: the dashboard can drive the whole loop. Open it right after `dow init`
+> (before any commit) and use **Capture your first version** to make `v1`, then
+> **Edit spec** and capture again - all from the browser.
 
 ---
 

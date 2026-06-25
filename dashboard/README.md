@@ -5,10 +5,8 @@ full AI inference spec and measures **semantic drift**, **stability**, and
 **regressions** across versions. Built with **React + TypeScript + Tailwind CSS**.
 
 > Run it with **`dow dashboard`** and the UI is backed by your **live `.dow`
-> store**: a small local server (localhost-only) serves the captured versions as
-> JSON and this prebuilt bundle, and exposes a localhost-only write API so you
-> can edit the spec and capture versions from the UI (including the first one
-> after `dow init`). Run it **standalone** with
+> store**: a small local server (read-only, localhost-only) serves the captured
+> versions as JSON and this prebuilt bundle. Run it **standalone** with
 > `npm run dev` and it falls back to **typed mock data** so the front end can be
 > developed without a store. Either way the drift score, stability delta, and
 > pass / warn / fail verdict render through `lib/drift.ts` — in live mode reusing
@@ -20,7 +18,7 @@ full AI inference spec and measures **semantic drift**, **stability**, and
 
 ### Live data (recommended)
 
-From a project that has captured versions with `dow commit`:
+From a project that has captured versions with `dow run`:
 
 ```bash
 dow dashboard      # serves the bundled UI and opens it in your browser
@@ -63,7 +61,7 @@ can serve it. Requirements: Node 18+ and npm.
 
 | View | Components |
 | --- | --- |
-| **Dashboard** | `VersionTree`, `VersionHistory`, `MetricsCards`, **New Version / Refresh** CTA |
+| **Dashboard** | `VersionTree`, `VersionHistory`, `MetricsCards`, **New Run / Refresh** CTA |
 | **Version Details** | `ConfigSection`, `OutputsSection`, `MetricsSection` |
 | **Compare** | `DiffView` (side-by-side / inline), `DriftScoreGauge`, `VerdictCard` |
 
@@ -71,8 +69,8 @@ can serve it. Requirements: Node 18+ and npm.
 
 - **Select a version** in the tree or history → updates Version Details **and** the Compare panel.
 - **Refresh** (live mode) re-reads the `.dow` store: the server rebuilds `data.json`
-  on every request, so capturing new versions with `dow commit` and refreshing shows them.
-- **New Version** (mock mode only) opens an accessible modal (focus-trapped) with form
+  on every request, so capturing new versions with `dow run` and refreshing shows them.
+- **New Run** (mock mode only) opens an accessible modal (focus-trapped) with form
   fields; submitting synthesizes a child version, evaluates it, and opens it in Details.
 - **Compare** supports picking any two versions (A/B) with a swap control.
 - **Drift score + verdict** mirror dow's real verdict thresholds. In live mode the
@@ -137,7 +135,7 @@ dashboard/
 │  ├─ data/                # metric registry, live loader (loadData.ts), mock versions
 │  ├─ lib/                 # drift engine, diff, tree, formatters
 │  ├─ hooks/               # useTheme
-│  ├─ store/               # AppStore context (live dataset + mock New Version synthesis)
+│  ├─ store/               # AppStore context (live dataset + mock New Run synthesis)
 │  └─ components/
 │     ├─ ui/               # Button, Badge, Card, Modal, Sparkline, …
 │     ├─ dashboard/        # Tree, History, MetricsCards, DashboardSection
