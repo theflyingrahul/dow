@@ -79,12 +79,12 @@ export function TopBar({ onOpenMobile }: { onOpenMobile: () => void }) {
                 iconLeft={<IconPlus className="h-4 w-4" />}
                 className="hidden sm:inline-flex"
               >
-                New Run
+                New Version
               </Button>
               <Button
                 variant="primary"
                 onClick={openNewRun}
-                aria-label="New Run"
+                aria-label="New Version"
                 className="sm:hidden"
               >
                 <IconPlus className="h-4 w-4" />

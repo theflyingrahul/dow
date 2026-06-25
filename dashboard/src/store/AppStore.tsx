@@ -17,7 +17,7 @@ import type {
 import type { Dataset } from '../data/loadData';
 import { averageAdjacentDrift } from '../lib/drift';
 
-// ---- deterministic helpers for synthesizing a "New Run" ------------- //
+// ---- deterministic helpers for synthesizing a "New Version" --------- //
 
 const clamp01 = (x: number) => Math.max(0, Math.min(1, x));
 
@@ -51,7 +51,7 @@ function buildSamples(texts: string[], baseTokens: number, baseLatency: number):
   }));
 }
 
-/** Synthesize a believable child version from the New Run form input. */
+/** Synthesize a believable child version from the New Version form input. */
 function synthesizeVersion(base: Version, input: NewRunInput, id: string): Version {
   const rand = mulberry32(hashString(id + input.note + input.temperature));
   const jitter = (scale: number) => (rand() - 0.5) * scale;
@@ -98,11 +98,11 @@ function synthesizeVersion(base: Version, input: NewRunInput, id: string): Versi
 
   return {
     id,
-    label: `${id} · new run`,
+    label: `${id} · new version`,
     parentId: base.id,
     createdAt: new Date().toISOString(),
     author: 'you',
-    summary: input.note.trim() || `New run branched from ${base.id}.`,
+    summary: input.note.trim() || `New version branched from ${base.id}.`,
     changedField: tempDelta !== 0 ? 'sampling.temperature' : 'sampling.maxTokens',
     tags: ['experimental'],
     status: 'captured',
@@ -159,7 +159,14 @@ interface AppStore {
   isNewRunOpen: boolean;
   openNewRun: () => void;
   closeNewRun: () => void;
-  submitNewRun: (input: NewRunInput) => void;
+  /** The previewed, not-yet-committed version (shown after eval, before commit). */
+  draftVersion: Version | null;
+  /** Synthesize and score the working spec without committing it (preview). */
+  previewNewRun: (input: NewRunInput) => void;
+  /** Commit the current preview as a new version and open it. */
+  commitPreview: () => void;
+  /** Discard the preview and return to editing the spec. */
+  discardPreview: () => void;
 }
 
 const StoreContext = createContext<AppStore | null>(null);
@@ -177,6 +184,7 @@ export function AppStoreProvider({
   const [compareFromId, setCompareFromId] = useState<string>(dataset.compareFromId);
   const [compareToId, setCompareToId] = useState<string>(dataset.compareToId);
   const [isNewRunOpen, setNewRunOpen] = useState(false);
+  const [draftVersion, setDraftVersion] = useState<Version | null>(null);
 
   const headId = dataset.headId;
 
@@ -214,7 +222,9 @@ export function AppStoreProvider({
     setCompareToId(compareFromId);
   }, [compareFromId, compareToId]);
 
-  const submitNewRun = useCallback(
+  // Preview: synthesize and score the working spec without committing it, so the
+  // result can be reviewed (and tweaked) before it becomes a version.
+  const previewNewRun = useCallback(
     (input: NewRunInput) => {
       const base = versionsById[input.baseVersionId];
       if (!base) {
@@ -222,17 +232,25 @@ export function AppStoreProvider({
         return;
       }
       const id = nextVersionId(versions);
-      const created = synthesizeVersion(base, input, id);
-      setVersions((prev) => [...prev, created]);
-      // Focus the freshly created run and compare it against its base.
-      setSelectedId(id);
-      setCompareFromId(base.id);
-      setCompareToId(id);
-      setView('details');
-      setNewRunOpen(false);
+      setDraftVersion(synthesizeVersion(base, input, id));
     },
     [versions, versionsById],
   );
+
+  // Commit the previewed draft as a real version and open it in Version Details.
+  const commitPreview = useCallback(() => {
+    if (!draftVersion) return;
+    const created = draftVersion;
+    setVersions((prev) => [...prev, created]);
+    setSelectedId(created.id);
+    setCompareFromId(created.parentId ?? headId);
+    setCompareToId(created.id);
+    setView('details');
+    setNewRunOpen(false);
+    setDraftVersion(null);
+  }, [draftVersion, headId]);
+
+  const discardPreview = useCallback(() => setDraftVersion(null), []);
 
   const value = useMemo<AppStore>(
     () => ({
@@ -254,8 +272,14 @@ export function AppStoreProvider({
       swapCompare,
       isNewRunOpen,
       openNewRun: () => setNewRunOpen(true),
-      closeNewRun: () => setNewRunOpen(false),
-      submitNewRun,
+      closeNewRun: () => {
+        setNewRunOpen(false);
+        setDraftVersion(null);
+      },
+      draftVersion,
+      previewNewRun,
+      commitPreview,
+      discardPreview,
     }),
     [
       versions,
@@ -272,7 +296,10 @@ export function AppStoreProvider({
       compareToId,
       swapCompare,
       isNewRunOpen,
-      submitNewRun,
+      draftVersion,
+      previewNewRun,
+      commitPreview,
+      discardPreview,
     ],
   );
 

@@ -8,7 +8,7 @@ versions (computed with the same engine as 'dow compare').
 The dashboard reflects your .dow store live. Capture more versions with
 'dow commit' in another terminal and refresh the page to see them. It binds to
 localhost only; use --host/--port to change where it listens. Use --export to
-write the underlying data as JSON without starting a server.
+write the underlying data as JSON without starting a server. Aliased as 'dow dash'.
 
 @examples
 dow dashboard

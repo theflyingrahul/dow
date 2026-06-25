@@ -30,8 +30,10 @@ pip install -e ".[local]"         # local sentence-transformers embeddings
 ## Use
 
 ```bash
-dow commit         # first commit scaffolds specs/summarization.yaml + evals.py; commit again to capture v1
-# edit specs/summarization.yaml (e.g. change temperature)
+dow init           # scaffold specs/summarization.yaml + evals.py
+# edit specs/summarization.yaml (your prompt, model, sampling, metrics)
+dow commit         # captures v1
+# edit specs/summarization.yaml again (e.g. change temperature)
 dow commit         # captures v2 (custom metrics run automatically)
 dow compare        # v1 vs v2: output diff + drift + stability + verdict (defaults to last two)
 dow explain        # why behavior changed: attributes it to a config field

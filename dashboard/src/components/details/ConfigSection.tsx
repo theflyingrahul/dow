@@ -57,7 +57,7 @@ export function ConfigSection({ version }: { version: Version }) {
   };
 
   return (
-    <Card className="flex h-full flex-col p-5">
+    <Card className="p-5">
       <CardHeader
         kicker="Specification"
         title="Config"
@@ -74,7 +74,8 @@ export function ConfigSection({ version }: { version: Version }) {
         }
       />
 
-      <div className="mt-5 space-y-5">
+      <div className="mt-5 grid gap-6 lg:grid-cols-2">
+        <div className="space-y-5">
         <Group label="Prompt">
           <div className="px-3 py-3">
             <p className="font-mono text-2xs text-muted">system</p>
@@ -102,7 +103,9 @@ export function ConfigSection({ version }: { version: Version }) {
             />
           </div>
         </Group>
+        </div>
 
+        <div className="space-y-5">
         <Group label="Model">
           <KV
             k="provider"
@@ -150,6 +153,7 @@ export function ConfigSection({ version }: { version: Version }) {
             </span>
           </div>
         </Group>
+        </div>
       </div>
     </Card>
   );

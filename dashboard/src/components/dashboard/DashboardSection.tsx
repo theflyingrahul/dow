@@ -1,13 +1,12 @@
 import { useStore } from '../../store/AppStore';
-import { Button } from '../ui/Button';
 import { Reveal } from '../ui/Reveal';
-import { IconPlus, IconSparkle } from '../ui/icons';
+import { IconSparkle } from '../ui/icons';
 import { MetricsCards } from './MetricsCards';
 import { VersionTree } from './VersionTree';
 import { VersionHistory } from './VersionHistory';
 
 function Hero() {
-  const { versions, headId, openNewRun } = useStore();
+  const { versions, headId } = useStore();
 
   return (
     <div className="panel relative overflow-hidden p-6 lg:p-8">
@@ -23,9 +22,8 @@ function Hero() {
             <span className="text-brand"> measure the drift.</span>
           </h2>
           <p className="mt-3 text-sm leading-relaxed text-ink-soft sm:text-base">
-            Every run captures the full inference spec. Compare any two versions to see semantic
-            drift, stability, and a clear pass / warn / fail verdict — attributed to the exact
-            config field that changed.
+            Compare any two versions to see semantic drift, stability, and a pass / warn / fail
+            verdict — attributed to the exact field that changed.
           </p>
         </div>
 
@@ -39,12 +37,6 @@ function Hero() {
             <p className="kicker mt-0.5">head</p>
           </div>
         </div>
-      </div>
-
-      <div className="relative mt-6">
-        <Button variant="primary" onClick={openNewRun} iconLeft={<IconPlus className="h-4 w-4" />}>
-          New Run
-        </Button>
       </div>
     </div>
   );

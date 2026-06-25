@@ -5,7 +5,12 @@ to the previous version and the most recent version tagged 'good', so regression
 stand out. Results are saved with the version and reused unless --rerun is passed;
 evaluators also run automatically on 'dow commit'.
 
+Use --draft to evaluate your current working spec without committing a version:
+edit the spec, run 'dow eval --draft' to see the scores against the previous and
+last-good versions, iterate, and run 'dow commit' when you are happy with it.
+
 @examples
 dow eval
+dow eval --draft
 dow eval v2 --rerun
 dow eval --good-tag golden
