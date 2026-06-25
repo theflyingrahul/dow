@@ -1,0 +1,174 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ------------------------------------------------------------------ *
+ * Color system — CSS variables (R G B channels).
+ * Default theme is a distinctive warm "paper + violet ink" light look.
+ * The .dark class flips the same tokens to a deep plum-black theme.
+ * ------------------------------------------------------------------ */
+@layer base {
+  :root {
+    --bg: 246 243 236; /* warm paper */
+    --surface: 255 255 255;
+    --surface-2: 240 236 227;
+    --surface-3: 231 225 213;
+    --border: 224 218 205;
+
+    --ink: 24 21 30; /* near-black plum */
+    --ink-soft: 67 61 78;
+    --muted: 122 114 132;
+
+    --brand: 88 40 224; /* electric violet (text/accent) */
+    --brand-soft: 121 86 232;
+    --brand-solid: 88 40 224; /* filled buttons — keeps white text AA */
+    --brand-ink: 255 255 255; /* text on brand-solid */
+
+    --accent: 255 106 61; /* warm coral highlight */
+
+    --success: 22 163 110;
+    --success-ink: 13 110 76;
+    --warning: 217 145 6;
+    --warning-ink: 146 95 0;
+    --danger: 220 60 66;
+    --danger-ink: 159 33 38;
+
+    --shadow: 41 30 64;
+
+    color-scheme: light;
+  }
+
+  .dark {
+    --bg: 13 12 17;
+    --surface: 22 20 28;
+    --surface-2: 30 27 38;
+    --surface-3: 41 36 51;
+    --border: 46 41 58;
+
+    --ink: 240 237 230;
+    --ink-soft: 197 191 205;
+    --muted: 150 142 163;
+
+    --brand: 167 140 248; /* lighter violet pops on dark */
+    --brand-soft: 138 104 242;
+    --brand-solid: 113 80 238;
+    --brand-ink: 255 255 255;
+
+    --accent: 255 128 88;
+
+    --success: 52 199 142;
+    --success-ink: 150 235 200;
+    --warning: 245 184 70;
+    --warning-ink: 250 214 150;
+    --danger: 240 110 116;
+    --danger-ink: 250 182 186;
+
+    --shadow: 0 0 0;
+
+    color-scheme: dark;
+  }
+
+  * {
+    border-color: rgb(var(--border));
+  }
+
+  html {
+    -webkit-text-size-adjust: 100%;
+    scroll-behavior: smooth;
+  }
+
+  body {
+    @apply bg-bg text-ink font-sans antialiased;
+    font-feature-settings: 'ss01', 'cv01';
+    text-rendering: optimizeLegibility;
+  }
+
+  ::selection {
+    background-color: rgb(var(--brand) / 0.22);
+    color: rgb(var(--ink));
+  }
+
+  /* Distinctive editorial display headings */
+  h1,
+  h2,
+  h3 {
+    @apply font-display;
+    font-optical-sizing: auto;
+  }
+
+  /* Consistent, accessible focus ring across interactive elements */
+  :focus-visible {
+    outline: none;
+  }
+}
+
+@layer components {
+  .panel {
+    @apply rounded-2xl border border-border bg-surface shadow-card;
+  }
+
+  .kicker {
+    @apply text-2xs font-semibold uppercase tracking-kicker text-muted;
+  }
+
+  .focus-ring {
+    @apply outline-none transition-shadow focus-visible:ring-2 focus-visible:ring-brand/70 focus-visible:ring-offset-2 focus-visible:ring-offset-bg;
+  }
+
+  .metric-num {
+    @apply font-mono tabular-nums tracking-tight;
+  }
+
+  /* Editorial hairline divider with a soft fade */
+  .rule {
+    height: 1px;
+    background: linear-gradient(
+      to right,
+      transparent,
+      rgb(var(--border)) 12%,
+      rgb(var(--border)) 88%,
+      transparent
+    );
+  }
+}
+
+@layer utilities {
+  /* Staggered reveal helper: set --d via inline style for sequencing */
+  .reveal-on-load {
+    animation: reveal 0.6s cubic-bezier(0.22, 1, 0.36, 1) both;
+    animation-delay: var(--d, 0ms);
+  }
+
+  .card-hover {
+    @apply transition-all duration-300 ease-spring hover:-translate-y-0.5 hover:shadow-elevated;
+  }
+
+  /* Thin, themeable scrollbars for code/diff panes */
+  .scroll-slim {
+    scrollbar-width: thin;
+    scrollbar-color: rgb(var(--border)) transparent;
+  }
+  .scroll-slim::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+  }
+  .scroll-slim::-webkit-scrollbar-thumb {
+    background-color: rgb(var(--border));
+    border-radius: 9999px;
+  }
+  .scroll-slim::-webkit-scrollbar-track {
+    background: transparent;
+  }
+}
+
+/* Respect users who prefer reduced motion: disable transforms/animations. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+    scroll-behavior: auto !important;
+  }
+}

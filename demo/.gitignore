@@ -1,0 +1,4 @@
+# dow's behavior store and run output, created if you run `dow` here directly.
+.dow/
+runs/
+evolution.md
