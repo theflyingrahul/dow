@@ -94,11 +94,14 @@ def main() -> None:
     args = parser.parse_args()
 
     root = Path(args.dir).resolve() if args.dir else Path(tempfile.mkdtemp(prefix="dow_demo_"))
-    specs = root / "specs"
-    specs.mkdir(parents=True, exist_ok=True)
-    spec = specs / "summarization.yaml"
+    root.mkdir(parents=True, exist_ok=True)
+    spec = root / "specs" / "summarization.yaml"
 
     console.print(f"[bold]dow demo[/bold]  ->  {root}")
+
+    step("init  -  scaffold specs/summarization.yaml + evals.py", args.pause)
+    if not spec.exists():
+        dow(root, "init")
 
     step("v1  -  baseline (temperature 0.2)", args.pause)
     write_spec(spec, BASE_PROMPT, "mock-2024-07-18", 0.2)
