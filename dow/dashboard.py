@@ -4,7 +4,7 @@ This module turns the captured versions in ``.dow`` into the JSON shape the
 React dashboard (``dashboard/``) consumes, and serves both the bundled static
 assets (``dow/web``) and that live data over a tiny localhost HTTP server.
 
-The dashboard is *read-only*: it reflects whatever ``dow run``/``dow eval`` have
+The dashboard is *read-only*: it reflects whatever ``dow commit``/``dow eval`` have
 captured. Drift, stability, and verdicts for parent->child edges are computed
 with the same engine the CLI uses (``dow.metrics``), so the UI matches
 ``dow compare`` instead of re-deriving its own numbers.

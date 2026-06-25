@@ -42,9 +42,9 @@ It evolves the chatbot through six versions and runs `history`, `inspect`,
 
 ```bash
 cd demo
-dow run                      # capture v1 from specs/chatbot.yaml
+dow commit                   # capture v1 from specs/chatbot.yaml
 # edit the system prompt in specs/chatbot.yaml, then:
-dow run                      # capture v2 (evaluators run automatically)
+dow commit                   # capture v2 (evaluators run automatically)
 dow compare                  # v1 vs v2: drift, stability, verdict
 dow explain                  # which spec field changed the behavior
 dow eval                     # the service checklist vs previous and last-good

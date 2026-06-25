@@ -1,4 +1,4 @@
-Show detailed help for dow or one command (e.g. 'dow help run').
+Show detailed help for dow or one command (e.g. 'dow help commit').
 
 With no argument, lists every command. With a command name, prints that
 command's full description, arguments, options, and usage examples.

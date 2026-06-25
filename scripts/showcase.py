@@ -174,40 +174,40 @@ def main():
     # ----- build a trunk: one change per version, auto-evaluated on capture ---
     step("v1  -  baseline (temperature 0.2)", args.pause)
     write_spec(spec, system=S1, template=T1, model_version=M1, temperature=0.2)
-    dow(root, "run", "-m", "baseline")
+    dow(root, "commit", "-m", "baseline")
     dow(root, "tag", "baseline", "v1")
 
     step("v2  -  make it deterministic: temperature 0.2 -> 0.0", args.pause)
     write_spec(spec, system=S1, template=T1, model_version=M1, temperature=0.0)
-    dow(root, "run", "-m", "make deterministic")
+    dow(root, "commit", "-m", "make deterministic")
 
     step("v3  -  upgrade the model snapshot (only model.version changes)", args.pause)
     write_spec(spec, system=S1, template=T1, model_version=M2, temperature=0.0)
-    dow(root, "run", "-m", "upgrade model snapshot")
+    dow(root, "commit", "-m", "upgrade model snapshot")
 
     step("v4  -  tighten the system prompt (only prompt.system changes)", args.pause)
     write_spec(spec, system=S2, template=T1, model_version=M2, temperature=0.0)
-    dow(root, "run", "-m", "tighten system prompt")
+    dow(root, "commit", "-m", "tighten system prompt")
     dow(root, "tag", "good", "v4")
     dow(root, "tag", "golden", "v4")
 
     step("v5  -  stress test: temperature 0.0 -> 0.95 (expect instability)", args.pause)
     write_spec(spec, system=S2, template=T1, model_version=M2, temperature=0.95)
-    dow(root, "run", "-m", "stress-test high temperature")
+    dow(root, "commit", "-m", "stress-test high temperature")
     dow(root, "tag", "bad", "v5")
 
     # ----- branches: fork earlier versions to explore alternatives -----------
     step("v6  -  branch from v2: pin a model revision (only model.revision)", args.pause)
     write_spec(spec, system=S1, template=T1, model_version=M1, temperature=0.0, revision="r2025.02")
-    dow(root, "run", "--from", "v2", "-m", "pin model revision")
+    dow(root, "commit", "--from", "v2", "-m", "pin model revision")
 
     step("v7  -  branch from v3: change TWO fields at once (confounded)", args.pause)
     write_spec(spec, system=S2, template=T1, model_version=M2, temperature=0.6)
-    dow(root, "run", "--from", "v3", "-m", "raise temperature and reword prompt")
+    dow(root, "commit", "--from", "v3", "-m", "raise temperature and reword prompt")
 
     step("v8  -  branch from v4: reword the template (only prompt.template)", args.pause)
     write_spec(spec, system=S2, template=T2, model_version=M2, temperature=0.0)
-    dow(root, "run", "--from", "v4", "-m", "reword template")
+    dow(root, "commit", "--from", "v4", "-m", "reword template")
     dow(root, "tag", "candidate", "v8")
 
     # ----- analyze ------------------------------------------------------------

@@ -10,7 +10,7 @@ Two things drive its behavior, so editing the spec measurably changes it:
 * The **system prompt** acts as policy. The bot honors directives it finds there -
   greet warmly, quote prices, confirm the spice level, recommend the signature
   dish, suggest a pairing - exactly the way a real LLM follows a system prompt.
-  Add a directive in the spec and the next ``dow run`` shows the behavior (and the
+  Add a directive in the spec and the next ``dow commit`` shows the behavior (and the
   evaluator scores) change.
 * The **sampling temperature** controls per-sample variation. At ``temperature: 0``
   every sample is identical (stability 1.0); higher values pick among more phrasings

@@ -30,9 +30,9 @@ pip install -e ".[local]"         # local sentence-transformers embeddings
 ## Use
 
 ```bash
-dow run            # first run scaffolds specs/summarization.yaml + evals.py; run again to capture v1
+dow commit         # first commit scaffolds specs/summarization.yaml + evals.py; commit again to capture v1
 # edit specs/summarization.yaml (e.g. change temperature)
-dow run            # captures v2 (custom metrics run automatically)
+dow commit         # captures v2 (custom metrics run automatically)
 dow compare        # v1 vs v2: output diff + drift + stability + verdict (defaults to last two)
 dow explain        # why behavior changed: attributes it to a config field
 dow tag good v1    # label a version (good, golden, baseline, bad, ...)
@@ -46,7 +46,7 @@ dow dashboard      # open a live web dashboard of your versions, drift, and verd
 
 Versions are named automatically (v1, v2, ...); refer to them by name, the
 shortcuts `last` and `prev`, or any label you applied with `dow tag`. They form
-a tree - `dow run --from v1` branches from an earlier version. Runs fully
+a tree - `dow commit --from v1` branches from an earlier version. Runs fully
 offline by default (mock provider + built-in hashing embedder); no API key
 required.
 
@@ -70,7 +70,7 @@ def avg_word_count(ctx):
 
 `dow eval` runs them, saves the scores with the version, and compares against
 the previous version and the last one you tagged (`dow tag good`). Evaluation
-is automatic on `dow run` and reused thereafter unless you pass `--rerun`.
+is automatic on `dow commit` and reused thereafter unless you pass `--rerun`.
 
 ## Dashboard
 
@@ -87,9 +87,9 @@ dow dashboard --export data.json    # write the underlying JSON without starting
 ```
 
 The server binds to `localhost` only and is read-only: it never modifies your
-store. It reflects the store live - capture more versions with `dow run` in
+store. It reflects the store live - capture more versions with `dow commit` in
 another terminal and use the **Refresh** button to see them. With no captured
-versions yet, run `dow run` first.
+versions yet, run `dow commit` first.
 
 The UI ships prebuilt with the package, so a regular `pip install` is all you
 need. If you're working from a source checkout that hasn't been built yet, build

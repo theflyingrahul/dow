@@ -102,19 +102,19 @@ def main() -> None:
 
     step("v1  -  baseline (temperature 0.2)", args.pause)
     write_spec(spec, BASE_PROMPT, "mock-2024-07-18", 0.2)
-    dow(root, "run", "-m", "baseline")
+    dow(root, "commit", "-m", "baseline")
 
     step("v2  -  raise temperature to 0.9 (expect instability)", args.pause)
     write_spec(spec, BASE_PROMPT, "mock-2024-07-18", 0.9)
-    dow(root, "run", "-m", "raise temperature")
+    dow(root, "commit", "-m", "raise temperature")
 
     step("v3  -  branch from v1: pin a new model snapshot, temperature 0", args.pause)
     write_spec(spec, BASE_PROMPT, "mock-2025-02-01", 0.0)
-    dow(root, "run", "--from", "v1", "-m", "new model snapshot")
+    dow(root, "commit", "--from", "v1", "-m", "new model snapshot")
 
     step("v4  -  branch from v2: tune temperature down to 0.5", args.pause)
     write_spec(spec, BASE_PROMPT, "mock-2024-07-18", 0.5)
-    dow(root, "run", "--from", "v2", "-m", "tune temperature")
+    dow(root, "commit", "--from", "v2", "-m", "tune temperature")
 
     step("history  -  every captured version", args.pause)
     dow(root, "history")

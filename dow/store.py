@@ -192,7 +192,7 @@ class Store:
     def resolve(self, spec_name: str, ref: str) -> str:
         ids = [v["id"] for v in self.list_versions(spec_name)]
         if not ids:
-            raise ValueError("No versions yet. Run 'dow run' first.")
+            raise ValueError("No versions yet. Run 'dow commit' first.")
         r = (ref or "last").strip().lower()
         if r in ("last", "latest", "head"):
             return ids[-1]
