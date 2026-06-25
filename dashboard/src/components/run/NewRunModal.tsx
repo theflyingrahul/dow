@@ -48,7 +48,8 @@ export function NewRunModal() {
   const [maxTokens, setMaxTokens] = useState(192);
   const [samples, setSamples] = useState(5);
 
-  // Run-simulation state: a progress bar is shown after "Capture run".
+  // Evaluation-simulation state: a progress bar runs after "Evaluate draft",
+  // then the preview step shows the scored draft to commit or keep tweaking.
   const [running, setRunning] = useState(false);
   const [progress, setProgress] = useState(0);
   const pendingInput = useRef<NewRunInput | null>(null);
