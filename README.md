@@ -41,6 +41,7 @@ dow history        # list captured versions, stability, and tags
 dow inspect v1     # one version's spec, runtime capture, outputs, tags, eval
 dow tree           # visualize how behavior evolves across versions
 dow tree -o evolution.md   # export a Mermaid diagram; open the Markdown preview
+dow dashboard      # open a live web dashboard of your versions, drift, and verdicts
 ```
 
 Versions are named automatically (v1, v2, ...); refer to them by name, the
@@ -70,6 +71,38 @@ def avg_word_count(ctx):
 `dow eval` runs them, saves the scores with the version, and compares against
 the previous version and the last one you tagged (`dow tag good`). Evaluation
 is automatic on `dow run` and reused thereafter unless you pass `--rerun`.
+
+## Dashboard
+
+Prefer a visual view? `dow dashboard` opens a local web UI backed by your live
+behavior store - the version tree, per-version configuration and outputs,
+stability and custom-evaluator metrics, and the drift score and verdict between
+any two versions (computed with the same engine as `dow compare`).
+
+```bash
+dow dashboard                       # open the dashboard in your browser
+dow dashboard --spec summarization  # choose a spec when the store has more than one
+dow dashboard --port 8080 --no-open # bind a fixed port and don't launch a browser
+dow dashboard --export data.json    # write the underlying JSON without starting a server
+```
+
+The server binds to `localhost` only and is read-only: it never modifies your
+store. It reflects the store live - capture more versions with `dow run` in
+another terminal and use the **Refresh** button to see them. With no captured
+versions yet, run `dow run` first.
+
+The UI ships prebuilt with the package, so a regular `pip install` is all you
+need. If you're working from a source checkout that hasn't been built yet, build
+it once (requires Node 18+):
+
+```bash
+cd dashboard
+npm install
+npm run build      # bundles the UI into dow/web/, where dow dashboard serves it from
+```
+
+See [dashboard/README.md](dashboard/README.md) for the design system and
+front-end development workflow (including a mock-data preview mode).
 
 ## Documentation and the manual page
 

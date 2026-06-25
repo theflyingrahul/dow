@@ -4,12 +4,33 @@ An editorial, production-quality dashboard for **dow**, a tool that versions the
 full AI inference spec and measures **semantic drift**, **stability**, and
 **regressions** across versions. Built with **React + TypeScript + Tailwind CSS**.
 
-> Every metric — drift score, stability delta, and the pass / warn / fail verdict
-> — is recomputed **client-side from typed mock data**. No backend required.
+> Run it with **`dow dashboard`** and the UI is backed by your **live `.dow`
+> store**: a small local server (read-only, localhost-only) serves the captured
+> versions as JSON and this prebuilt bundle. Run it **standalone** with
+> `npm run dev` and it falls back to **typed mock data** so the front end can be
+> developed without a store. Either way the drift score, stability delta, and
+> pass / warn / fail verdict render through `lib/drift.ts` — in live mode reusing
+> the same engine verdict the CLI shows for adjacent versions.
 
 ---
 
 ## Quick start
+
+### Live data (recommended)
+
+From a project that has captured versions with `dow run`:
+
+```bash
+dow dashboard      # serves the bundled UI and opens it in your browser
+```
+
+This serves the production bundle (see [build](#build) below) together with a
+`data.json` snapshot of your store. See the root [README](../README.md#dashboard)
+for the full command and its options.
+
+### Front-end development (mock data)
+
+To iterate on the UI itself with hot-module reload and no store required:
 
 ```bash
 cd dashboard
@@ -17,17 +38,20 @@ npm install
 npm run dev
 ```
 
-Open the printed URL (default <http://localhost:5173>).
+Open the printed URL (default <http://localhost:5173>). In this mode the app
+loads the typed mock dataset described under [Data](#data).
 
-Other scripts:
+### Build
 
 ```bash
-npm run build      # type-check (tsc -b) + production bundle to dist/
+npm run build      # type-check (tsc -b) + production bundle into ../dow/web/
 npm run preview    # preview the production build
 npm run typecheck  # types only
 ```
 
-Requirements: Node 18+ and npm.
+`npm run build` emits the bundle into **`../dow/web/`**, where it ships as
+package data so a regular `pip install` includes the UI and `dow dashboard`
+can serve it. Requirements: Node 18+ and npm.
 
 ---
 
@@ -37,28 +61,39 @@ Requirements: Node 18+ and npm.
 
 | View | Components |
 | --- | --- |
-| **Dashboard** | `VersionTree`, `VersionHistory`, `MetricsCards`, **New Run** CTA |
+| **Dashboard** | `VersionTree`, `VersionHistory`, `MetricsCards`, **New Run / Refresh** CTA |
 | **Version Details** | `ConfigSection`, `OutputsSection`, `MetricsSection` |
 | **Compare** | `DiffView` (side-by-side / inline), `DriftScoreGauge`, `VerdictCard` |
 
 ### Behavior
 
 - **Select a version** in the tree or history → updates Version Details **and** the Compare panel.
-- **New Run** opens an accessible modal (focus-trapped) with form fields; submitting
-  synthesizes a child version, evaluates it, and opens it in Details.
+- **Refresh** (live mode) re-reads the `.dow` store: the server rebuilds `data.json`
+  on every request, so capturing new versions with `dow run` and refreshing shows them.
+- **New Run** (mock mode only) opens an accessible modal (focus-trapped) with form
+  fields; submitting synthesizes a child version, evaluates it, and opens it in Details.
 - **Compare** supports picking any two versions (A/B) with a swap control.
-- **Drift score + verdict** recalculate from the mock data via `lib/drift.ts`,
-  mirroring dow's real verdict thresholds:
+- **Drift score + verdict** mirror dow's real verdict thresholds. In live mode the
+  server supplies the engine's own comparison for adjacent versions; otherwise they
+  are recomputed client-side via `lib/drift.ts`:
   - `drift ≥ fail (0.40)` or stability drop `≥ 0.25` → **Likely Regression**
   - `drift ≥ warn (0.15)` or stability drop `≥ 0.10` → **Behavior Drift**
   - otherwise → **Consistent**
 
 ### Data
 
-A typed dataset of **9 versions** forms a tree that branches at `v3` (→ `v4`, `v5`)
-and `v6` (→ `v8`, `v9`). Metrics include `accuracy`, `rougeL`, `stability`,
-`hallucinationRate`, `latencyMs`, `costUsd`, `tokenUsage`, and the custom
-evaluator `avgWordCount`.
+In **live mode** the app fetches `data.json` from the `dow dashboard` server,
+which builds it from your `.dow` store: the real versions, their captured
+configuration and outputs, stability, and any custom-evaluator metrics. The
+metric registry is assembled dynamically from whatever each version measured, so
+the cards and charts adapt to your spec (`src/data/loadData.ts` →
+`applyMetricRegistry`).
+
+When no `data.json` is available (standalone `npm run dev`), the app falls back
+to a typed mock dataset of **9 versions** that forms a tree branching at `v3`
+(→ `v4`, `v5`) and `v6` (→ `v8`, `v9`), with metrics such as `accuracy`,
+`rougeL`, `stability`, `hallucinationRate`, `latencyMs`, `costUsd`,
+`tokenUsage`, and the custom evaluator `avgWordCount`.
 
 ---
 
@@ -97,10 +132,10 @@ dashboard/
 │  ├─ index.css            # theme tokens, base styles, keyframes
 │  ├─ types.ts             # domain types/interfaces
 │  ├─ themes.ts            # optional alternate theme object
-│  ├─ data/                # metric registry + typed mock versions
+│  ├─ data/                # metric registry, live loader (loadData.ts), mock versions
 │  ├─ lib/                 # drift engine, diff, tree, formatters
 │  ├─ hooks/               # useTheme
-│  ├─ store/               # AppStore context (state + New Run synthesis)
+│  ├─ store/               # AppStore context (live dataset + mock New Run synthesis)
 │  └─ components/
 │     ├─ ui/               # Button, Badge, Card, Modal, Sparkline, …
 │     ├─ dashboard/        # Tree, History, MetricsCards, DashboardSection
