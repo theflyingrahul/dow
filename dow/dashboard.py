@@ -4,30 +4,38 @@ This module turns the captured versions in ``.dow`` into the JSON shape the
 React dashboard (``dashboard/``) consumes, and serves both the bundled static
 assets (``dow/web``) and that live data over a tiny localhost HTTP server.
 
-The dashboard is *read-only*: it reflects whatever ``dow commit``/``dow eval`` have
-captured. Drift, stability, and verdicts for parent->child edges are computed
-with the same engine the CLI uses (``dow.metrics``), so the UI matches
-``dow compare`` instead of re-deriving its own numbers.
+The dashboard reflects whatever ``dow commit``/``dow eval`` have captured, and it
+can also edit the working spec and capture versions (including the first one
+right after ``dow init``) via a small localhost-only write API (``/api/spec`` and
+``/api/commit``) that only accepts requests originating from the local machine.
+Drift, stability, and verdicts for parent->child edges are computed with the same
+engine the CLI uses (``dow.metrics``), so the UI matches ``dow compare`` instead
+of re-deriving its own numbers.
 """
 from __future__ import annotations
 
 import functools
 import json
+import os
+import subprocess
+import sys
 import webbrowser
 from datetime import datetime, timezone
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Callable, Optional
+from urllib.parse import urlparse
 
 from .embeddings import get_embedder
 from .evaluators import evaluate_version
 from .metrics import output_difference, semantic_drift, stability
 from .metrics import verdict as compute_verdict
-from .spec import flatten
+from .spec import InferenceSpec, flatten
 from .store import Store
 
 # Built dashboard assets are bundled here by `npm run build` (Vite outDir).
 WEB_DIR = Path(__file__).parent / "web"
+SPECS_DIRNAME = "specs"
 
 _VERDICT_LEVEL = {
     "Consistent": "pass",
@@ -57,16 +65,49 @@ def store_specs(root) -> list:
 def resolve_spec(root, spec: Optional[str] = None) -> Optional[str]:
     """Pick which spec the dashboard should show.
 
-    Returns the explicit ``spec`` when it exists in the store, otherwise the
-    single available spec, otherwise the first one, or ``None`` if empty.
+    Considers both committed specs and working spec files, so a project that has
+    only run ``dow init`` (no versions captured yet) still resolves. Returns the
+    explicit ``spec`` when it exists, otherwise the first available spec, or
+    ``None`` when there is no spec at all.
     """
-    names = store_specs(root)
+    names = dashboard_specs(root)
     if spec:
         stem = Path(spec).stem
         return stem if stem in names else None
-    if not names:
+    return names[0] if names else None
+
+
+def _working_spec_files(root) -> list:
+    d = Path(root) / SPECS_DIRNAME
+    return sorted(d.glob("*.yaml")) if d.is_dir() else []
+
+
+def spec_path(root, name: str) -> Path:
+    """Filesystem path of a working spec by name."""
+    return Path(root) / SPECS_DIRNAME / f"{name}.yaml"
+
+
+def dashboard_specs(root) -> list:
+    """Specs the dashboard can show: committed ones first, then any working spec
+    files that have no captured versions yet (so a freshly ``dow init``-ed
+    project still appears in the switcher)."""
+    names = list(store_specs(root))
+    seen = set(names)
+    for f in _working_spec_files(root):
+        if f.stem not in seen:
+            seen.add(f.stem)
+            names.append(f.stem)
+    return names
+
+
+def read_spec_text(root, name: Optional[str]) -> Optional[str]:
+    """Raw YAML of a working spec file, or None if it does not exist."""
+    if not name:
         return None
-    return names[0]
+    try:
+        return spec_path(root, name).read_text(encoding="utf-8")
+    except OSError:
+        return None
 
 
 # --------------------------------------------------------------------------- #
@@ -203,16 +244,18 @@ def _descriptor(key: str, label: str, fmt: str, better: str, values: list, weigh
 # --------------------------------------------------------------------------- #
 # payload
 # --------------------------------------------------------------------------- #
-def build_payload(root, spec: Optional[str] = None) -> dict:
+def build_payload(root, spec: Optional[str] = None, editable: bool = False) -> dict:
     """Build the full dashboard dataset from the live store for one spec."""
     root = Path(root)
     name = resolve_spec(root, spec)
-    specs = store_specs(root)
     base = {
         "generatedAt": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
         "live": True,
+        "editable": editable,
         "specName": name,
-        "specs": specs,
+        "specPath": f"{SPECS_DIRNAME}/{name}.yaml" if name else None,
+        "specText": read_spec_text(root, name),
+        "specs": dashboard_specs(root),
         "versions": [],
         "metricDescriptors": [],
         "headlineMetrics": [],
@@ -227,6 +270,8 @@ def build_payload(root, spec: Optional[str] = None) -> dict:
         return base
 
     store = Store(root)
+    if not store.is_initialized():
+        return base
     metas = store.list_versions(name)
     if not metas:
         return base
@@ -386,24 +431,158 @@ def write_payload(root, spec: Optional[str], path) -> dict:
 # static + data HTTP server
 # --------------------------------------------------------------------------- #
 class _Handler(SimpleHTTPRequestHandler):
-    """Serves the bundled SPA plus a freshly-built ``/data.json`` per request."""
+    """Serves the bundled SPA, a freshly-built ``/data.json``, and a small write
+    API (``/api/spec`` read/save, ``/api/commit``) so the first version can be
+    captured from the UI."""
 
     payload_provider: Callable[[], dict]
 
-    def __init__(self, *args, payload_provider: Callable[[], dict], **kwargs):
+    def __init__(self, *args, payload_provider: Callable[[], dict], root, spec, **kwargs):
         self.payload_provider = payload_provider
+        self._root = Path(root)
+        self._spec = spec
         super().__init__(*args, directory=str(WEB_DIR), **kwargs)
 
+    # ---- response helpers ---------------------------------------------- #
+    def _json(self, obj: dict, status: int = 200) -> None:
+        body = json.dumps(obj).encode("utf-8")
+        self.send_response(status)
+        self.send_header("Content-Type", "application/json; charset=utf-8")
+        self.send_header("Content-Length", str(len(body)))
+        self.send_header("Cache-Control", "no-store")
+        self.end_headers()
+        self.wfile.write(body)
+
+    def _read_json_body(self) -> dict:
+        length = int(self.headers.get("Content-Length") or 0)
+        raw = self.rfile.read(length) if length else b""
+        try:
+            return json.loads(raw or b"{}")
+        except (json.JSONDecodeError, UnicodeDecodeError):
+            return {}
+
+    def _current_name(self) -> Optional[str]:
+        return resolve_spec(self._root, self._spec)
+
+    def _is_local(self) -> bool:
+        # The write API mutates local files; only honor genuinely same-host
+        # requests to blunt cross-site / DNS-rebinding POSTs from web pages.
+        local = {"127.0.0.1", "localhost", "::1"}
+        host = (self.headers.get("Host") or "").rsplit(":", 1)[0].strip("[]")
+        if host and host not in local:
+            return False
+        origin = self.headers.get("Origin")
+        if origin and (urlparse(origin).hostname or "") not in local:
+            return False
+        return True
+
+    # ---- GET ----------------------------------------------------------- #
     def do_GET(self) -> None:  # noqa: N802 (http.server API)
-        if self.path.split("?", 1)[0] == "/data.json":
+        path = self.path.split("?", 1)[0]
+        if path == "/data.json":
             self._send_data()
             return
+        if path == "/api/spec":
+            self._get_spec()
+            return
         # SPA fallback: unknown non-asset paths return index.html
-        rel = self.path.split("?", 1)[0].lstrip("/")
+        rel = path.lstrip("/")
         target = (WEB_DIR / rel) if rel else (WEB_DIR / "index.html")
         if rel and not target.is_file():
             self.path = "/index.html"
         super().do_GET()
+
+    def _get_spec(self) -> None:
+        name = self._current_name()
+        if not name:
+            self._json({"error": "No spec found. Run 'dow init' first."}, status=404)
+            return
+        self._json(
+            {
+                "name": name,
+                "path": f"{SPECS_DIRNAME}/{name}.yaml",
+                "text": read_spec_text(self._root, name) or "",
+            }
+        )
+
+    # ---- POST ---------------------------------------------------------- #
+    def do_POST(self) -> None:  # noqa: N802 (http.server API)
+        path = self.path.split("?", 1)[0]
+        if path not in ("/api/spec", "/api/commit"):
+            self._json({"error": "Not found."}, status=404)
+            return
+        if not self._is_local():
+            self._json({"ok": False, "error": "Forbidden."}, status=403)
+            return
+        if path == "/api/spec":
+            self._save_spec()
+        else:
+            self._commit()
+
+    def _save_spec(self) -> None:
+        name = self._current_name()
+        if not name:
+            self._json({"ok": False, "error": "No spec to save."}, status=400)
+            return
+        text = self._read_json_body().get("text")
+        if not isinstance(text, str):
+            self._json({"ok": False, "error": "Missing spec text."}, status=400)
+            return
+        path = spec_path(self._root, name)
+        try:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(text, encoding="utf-8")
+        except OSError as exc:
+            self._json({"ok": False, "error": f"Could not write spec: {exc}"}, status=500)
+            return
+        # Validate so the UI can warn; the edit is saved either way.
+        valid, error = True, None
+        try:
+            InferenceSpec.load(path)
+        except Exception as exc:  # noqa: BLE001 - any parse/validation issue is a warning
+            valid, error = False, str(exc)
+        self._json({"ok": True, "valid": valid, "error": error})
+
+    def _commit(self) -> None:
+        name = self._current_name()
+        if not name:
+            self._json({"ok": False, "error": "No spec to commit. Run 'dow init' first."}, status=400)
+            return
+        path = spec_path(self._root, name)
+        if not path.exists():
+            self._json({"ok": False, "error": f"Spec not found: {SPECS_DIRNAME}/{name}.yaml"}, status=400)
+            return
+        try:
+            InferenceSpec.load(path)
+        except Exception as exc:  # noqa: BLE001 - surface invalid spec before committing
+            self._json({"ok": False, "error": f"Spec is invalid: {exc}"}, status=400)
+            return
+        message = (self._read_json_body().get("message") or "").strip()
+        argv = [sys.executable, "-m", "dow", "commit", name]
+        if message:
+            argv += ["-m", message]
+        try:
+            proc = subprocess.run(
+                argv,
+                cwd=str(self._root),
+                capture_output=True,
+                encoding="utf-8",
+                errors="replace",
+                env={**os.environ, "PYTHONIOENCODING": "utf-8"},
+                timeout=300,
+            )
+        except (OSError, subprocess.SubprocessError) as exc:
+            self._json({"ok": False, "error": f"Could not run dow commit: {exc}"}, status=500)
+            return
+        if proc.returncode != 0:
+            detail = (proc.stderr or proc.stdout or "").strip()
+            self._json({"ok": False, "error": detail or "dow commit failed."}, status=500)
+            return
+        try:
+            vid = Store(self._root).list_versions(name)[-1]["id"]
+        except Exception:  # noqa: BLE001 - commit succeeded; id is best-effort
+            vid = None
+        self._json({"ok": True, "versionId": vid})
 
     def _send_data(self) -> None:
         try:
@@ -435,8 +614,8 @@ def serve(
             "Dashboard assets not found. Build the UI first:\n"
             "  cd dashboard && npm install && npm run build"
         )
-    provider = functools.partial(build_payload, root, spec)
-    handler = functools.partial(_Handler, payload_provider=provider)
+    provider = functools.partial(build_payload, root, spec, True)  # editable: served live
+    handler = functools.partial(_Handler, payload_provider=provider, root=root, spec=spec)
     httpd = ThreadingHTTPServer((host, port), handler)
     actual_port = httpd.server_address[1]
     url = f"http://{host}:{actual_port}/"

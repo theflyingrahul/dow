@@ -11,7 +11,7 @@ from typing import Optional
 import typer
 
 from . import report
-from .dashboard import WEB_DIR, resolve_spec, serve, store_specs, write_payload
+from .dashboard import WEB_DIR, dashboard_specs, resolve_spec, serve, write_payload
 from .embeddings import get_embedder
 from .evaluators import evaluate_version
 from .metrics import output_difference, semantic_drift, stability
@@ -505,11 +505,11 @@ def dashboard(
     name = resolve_spec(root, spec)
     if name is None:
         report.console.print(
-            "[yellow]No versions yet.[/yellow] Run [bold]dow commit[/bold] to capture one, "
-            "then open the dashboard."
+            "[yellow]No spec found.[/yellow] Run [bold]dow init[/bold] to create one, then "
+            "open the dashboard to capture your first version."
         )
         raise typer.Exit(code=1)
-    specs = store_specs(root)
+    specs = dashboard_specs(root)
     if spec is None and len(specs) > 1:
         report.console.print(
             f"[dim]Multiple specs found ({', '.join(specs)}); showing [bold]{name}[/bold]. "
@@ -536,8 +536,8 @@ def dashboard(
             f"[green]dow dashboard[/green] serving [bold]{name}[/bold] at [cyan]{url}[/cyan]"
         )
         report.console.print(
-            "[dim]Reflects your .dow store live - re-run 'dow commit' and refresh. "
-            "Press Ctrl+C to stop.[/dim]"
+            "[dim]Reflects your .dow store live - edit the spec and capture versions "
+            "from the UI, or run 'dow commit' and refresh. Press Ctrl+C to stop.[/dim]"
         )
 
     serve(root, name, host=host, port=port, open_browser=not no_open, on_start=_announce)

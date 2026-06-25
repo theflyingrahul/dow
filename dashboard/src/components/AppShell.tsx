@@ -6,6 +6,8 @@ import { DashboardSection } from './dashboard/DashboardSection';
 import { VersionDetailsSection } from './details/VersionDetailsSection';
 import { CompareSection } from './compare/CompareSection';
 import { NewRunModal } from './run/NewRunModal';
+import { GetStarted } from './run/GetStarted';
+import { SpecEditorModal } from './run/SpecEditorModal';
 
 /** Decorative layered background: faint grid + soft brand/accent gradients. */
 function BackgroundLayers() {
@@ -21,7 +23,8 @@ function BackgroundLayers() {
 
 export function AppShell() {
   const [mobileOpen, setMobileOpen] = useState(false);
-  const { view, isLive } = useStore();
+  const { view, isLive, versions } = useStore();
+  const empty = versions.length === 0;
 
   return (
     <div className="relative min-h-screen text-ink">
@@ -35,10 +38,16 @@ export function AppShell() {
 
           <main className="mx-auto w-full max-w-[88rem] flex-1 px-4 py-6 sm:px-6 lg:px-8 lg:py-8">
             {/* Keyed wrapper fades content in on view change */}
-            <div key={view} className="animate-fade-in">
-              {view === 'dashboard' && <DashboardSection />}
-              {view === 'details' && <VersionDetailsSection />}
-              {view === 'compare' && <CompareSection />}
+            <div key={empty ? 'empty' : view} className="animate-fade-in">
+              {empty ? (
+                <GetStarted />
+              ) : (
+                <>
+                  {view === 'dashboard' && <DashboardSection />}
+                  {view === 'details' && <VersionDetailsSection />}
+                  {view === 'compare' && <CompareSection />}
+                </>
+              )}
             </div>
           </main>
 
@@ -59,6 +68,7 @@ export function AppShell() {
       </div>
 
       <NewRunModal />
+      <SpecEditorModal />
     </div>
   );
 }

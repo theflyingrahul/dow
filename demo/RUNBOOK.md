@@ -156,7 +156,8 @@ dow tree -o evolution.md      # then open evolution.md and "Open Preview" for th
 ## 12. Show the UI - web dashboard
 
 The same store, visualized. This opens your browser automatically and serves the
-live `.dow` store (read-only, localhost only). Press Ctrl+C to stop the server.
+live `.dow` store (localhost only; spec edits and captures from the UI are
+accepted from the local machine only). Press Ctrl+C to stop the server.
 
 ```powershell
 dow dashboard

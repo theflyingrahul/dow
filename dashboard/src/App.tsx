@@ -24,6 +24,9 @@ function mockDataset(): Dataset {
     comparisons: {},
     specName: 'billing-rag',
     specs: ['billing-rag'],
+    editable: false,
+    specText: null,
+    specPath: null,
   };
 }
 
