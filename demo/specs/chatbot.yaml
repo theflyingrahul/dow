@@ -1,5 +1,5 @@
 # specs/chatbot.yaml - the fully versioned spec for the chatbot.
-# Edit any field and run `dow run` to capture a new version; dow measures how the
+# Edit any field and run `dow commit` to capture a new version; dow measures how the
 # bot's behavior drifts and how the evaluator scores move.
 spec_version: 1
 name: chatbot

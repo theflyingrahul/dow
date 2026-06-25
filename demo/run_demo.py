@@ -115,31 +115,31 @@ def main() -> None:
 
     step("v1  -  baseline: a plain ordering assistant", args.pause)
     write_spec(spec, system=S1, temperature=0.2)
-    dow(root, "run", "-m", "baseline ordering assistant")
+    dow(root, "commit", "-m", "baseline ordering assistant")
     dow(root, "tag", "baseline", "v1")
 
     step("v2  -  prompt edit: warm welcome + always quote prices", args.pause)
     write_spec(spec, system=S2, temperature=0.2)
-    dow(root, "run", "-m", "warm welcome and quote prices")
+    dow(root, "commit", "-m", "warm welcome and quote prices")
 
     step("v3  -  prompt edit: confirm the spice level on every order", args.pause)
     write_spec(spec, system=S3, temperature=0.2)
-    dow(root, "run", "-m", "confirm spice level")
+    dow(root, "commit", "-m", "confirm spice level")
 
     step("v4  -  prompt edit: recommend the signature dish + suggest a pairing", args.pause)
     write_spec(spec, system=S4, temperature=0.2)
-    dow(root, "run", "-m", "recommend special and suggest a pairing")
+    dow(root, "commit", "-m", "recommend special and suggest a pairing")
     dow(root, "tag", "good", "v4")
     dow(root, "tag", "golden", "v4")
 
     step("v5  -  stress test: raise temperature 0.2 -> 0.9 (expect instability)", args.pause)
     write_spec(spec, system=S4, temperature=0.9)
-    dow(root, "run", "-m", "stress-test high temperature")
+    dow(root, "commit", "-m", "stress-test high temperature")
     dow(root, "tag", "bad", "v5")
 
     step("v6  -  branch from v4: pin temperature 0.0 for a deterministic release", args.pause)
     write_spec(spec, system=S4, temperature=0.0)
-    dow(root, "run", "--from", "v4", "-m", "deterministic release")
+    dow(root, "commit", "--from", "v4", "-m", "deterministic release")
     dow(root, "tag", "release", "v6")
 
     step("history  -  every version, its stability, and its tags", args.pause)

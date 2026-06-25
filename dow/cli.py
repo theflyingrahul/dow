@@ -1,7 +1,7 @@
 """dow command-line interface.
 
 Task-oriented commands focused on behavioral analysis. Versioning is automatic
-and the Git-backed store is hidden - there is no init, staging, commit, or refs.
+and the Git-backed store is hidden - there is no init, staging, or refs.
 """
 from pathlib import Path
 from typing import Optional
@@ -130,7 +130,7 @@ def _find_spec_name(name: Optional[str]) -> Optional[str]:
 def _need_spec(name: Optional[str]) -> str:
     resolved = _find_spec_name(name)
     if not resolved:
-        raise typer.BadParameter("No spec found. Run 'dow run' to get started.")
+        raise typer.BadParameter("No spec found. Run 'dow commit' to get started.")
     return resolved
 
 
@@ -155,7 +155,7 @@ def _resolve_pair(store: Store, name: str, a: Optional[str], b: Optional[str]):
     if a is None and b is None:
         if len(versions) < 2:
             raise typer.BadParameter(
-                "Need at least two versions. Change your spec and run 'dow run' again."
+                "Need at least two versions. Change your spec and run 'dow commit' again."
             )
         return versions[-2]["id"], versions[-1]["id"]
     if b is None:
@@ -238,8 +238,8 @@ def _doc(name: str) -> dict:
 # --------------------------------------------------------------------------- #
 # commands
 # --------------------------------------------------------------------------- #
-@app.command(**_doc("run"))
-def run(
+@app.command(**_doc("commit"))
+def commit(
     spec: Optional[str] = typer.Argument(None, help="Spec file or name (optional)."),
     message: Optional[str] = typer.Option(None, "--message", "-m", help="Short note for this version."),
     from_: Optional[str] = typer.Option(None, "--from", help="Branch from an earlier version instead of the latest."),
@@ -254,7 +254,7 @@ def run(
             evals_path.write_text(EXAMPLE_EVALS, encoding="utf-8")
         report.console.print(
             f"[green]Created[/green] specs/{EXAMPLE_NAME}.yaml and evals.py. "
-            "Edit them, then run [bold]dow run[/bold] again."
+            "Edit them, then run [bold]dow commit[/bold] again."
         )
         return
 
@@ -360,7 +360,7 @@ def evaluate(
     store = Store(_root())
     versions = store.list_versions(name)
     if not versions:
-        raise typer.BadParameter("No versions yet. Run 'dow run' first.")
+        raise typer.BadParameter("No versions yet. Run 'dow commit' first.")
     ids = [v["id"] for v in versions]
     vid = _resolve(store, name, version or "last")
     refs = store.get_record(name, vid)["config"]["evaluation"].get("metrics", [])
@@ -418,7 +418,7 @@ def tree(
     store = Store(_root())
     data = _build_tree(store, name)
     if not data["versions"]:
-        report.console.print("[yellow]No versions yet.[/yellow] Run [bold]dow run[/bold] to start.")
+        report.console.print("[yellow]No versions yet.[/yellow] Run [bold]dow commit[/bold] to start.")
         return
     if mermaid or output:
         diagram = report.build_mermaid(
@@ -450,7 +450,7 @@ def dashboard(
     name = resolve_spec(root, spec)
     if name is None:
         report.console.print(
-            "[yellow]No versions yet.[/yellow] Run [bold]dow run[/bold] to capture one, "
+            "[yellow]No versions yet.[/yellow] Run [bold]dow commit[/bold] to capture one, "
             "then open the dashboard."
         )
         raise typer.Exit(code=1)
@@ -481,7 +481,7 @@ def dashboard(
             f"[green]dow dashboard[/green] serving [bold]{name}[/bold] at [cyan]{url}[/cyan]"
         )
         report.console.print(
-            "[dim]Reflects your .dow store live - re-run 'dow run' and refresh. "
+            "[dim]Reflects your .dow store live - re-run 'dow commit' and refresh. "
             "Press Ctrl+C to stop.[/dim]"
         )
 
@@ -499,10 +499,10 @@ def _echo_help(command, ctx) -> None:
 @app.command(name="help", **_doc("help"))
 def help_command(
     command: Optional[str] = typer.Argument(
-        None, help="Command to explain in detail, e.g. 'run'. Omit for the overview."
+        None, help="Command to explain in detail, e.g. 'commit'. Omit for the overview."
     ),
 ) -> None:
-    """Show detailed help for dow or one command (e.g. 'dow help run')."""
+    """Show detailed help for dow or one command (e.g. 'dow help commit')."""
     cli = typer.main.get_command(app)
     root_ctx = typer.Context(cli, info_name="dow", help_option_names=[])
     if command is None:

@@ -14,7 +14,7 @@ here.
 
 ```
 dow/docs/
-  run.txt        # one file per command, named exactly after the command
+  commit.txt     # one file per command, named exactly after the command
   compare.txt
   ...
   man.txt
@@ -43,7 +43,7 @@ dow <command> ...
 - Write plain prose — **no roff or markup**. The man page generator escapes and
   formats it automatically.
 
-Example — `run.txt`:
+Example — `commit.txt`:
 
 ```
 Run your spec and capture its behavior as a new version.
@@ -52,15 +52,15 @@ Executes every input in the spec and stores the outputs together with the full
 runtime capture as an automatically named version (v1, v2, ...).
 
 @examples
-dow run
-dow run -m "lower temperature"
-dow run --from v1
+dow commit
+dow commit -m "lower temperature"
+dow commit --from v1
 ```
 
 ## How it is wired up
 
 - `dow/cli.py` loads each file with `_doc("<name>")` and passes it to the command
-  decorator: `@app.command(**_doc("run"))`. This sets the command's `help`
+  decorator: `@app.command(**_doc("commit"))`. This sets the command's `help`
   (description) and `epilog` (examples).
 - `dow help` is rendered by Typer from those values.
 - `man dow` is produced by `_render_manpage()`, which walks the live commands and

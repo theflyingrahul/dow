@@ -1,7 +1,7 @@
 Visualize how behavior evolves across versions.
 
 Renders the version lineage as a tree - the main line as a vertical trunk, with
-branches created by 'dow run --from' off to the side - annotating each step with
+branches created by 'dow commit --from' off to the side - annotating each step with
 its drift and stability change. Use --mermaid for a Mermaid gitGraph, or -o FILE to
 write it to a Markdown file you can preview.
 

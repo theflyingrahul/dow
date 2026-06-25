@@ -36,12 +36,12 @@ def print_run(record: dict, vid: str, note: str = "") -> None:
     ]
     if note:
         lines.append(f"[dim]{note}[/dim]")
-    console.print(Panel.fit("\n".join(lines), title="dow run", border_style="green"))
+    console.print(Panel.fit("\n".join(lines), title="dow commit", border_style="green"))
 
 
 def print_history(name: str, versions: list, work_fp=None) -> None:
     if not versions:
-        console.print("[yellow]No versions yet.[/yellow] Run [bold]dow run[/bold] to capture one.")
+        console.print("[yellow]No versions yet.[/yellow] Run [bold]dow commit[/bold] to capture one.")
         return
     table = Table(box=box.SIMPLE, header_style="bold", title=f"{name}: behavior history")
     table.add_column("version")
@@ -67,7 +67,7 @@ def print_history(name: str, versions: list, work_fp=None) -> None:
     if work_fp is not None and work_fp != versions[-1]["fingerprint"]:
         console.print(
             "[yellow]The working spec has unsaved changes[/yellow] since "
-            f"{versions[-1]['id']}; run [bold]dow run[/bold] to capture them."
+            f"{versions[-1]['id']}; run [bold]dow commit[/bold] to capture them."
         )
 
 
