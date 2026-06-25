@@ -1,0 +1,45 @@
+# specs/chatbot.yaml - the fully versioned spec for the chatbot.
+# Edit any field and run `dow run` to capture a new version; dow measures how the
+# bot's behavior drifts and how the evaluator scores move.
+spec_version: 1
+name: chatbot
+task: Answer customer messages for the Spice Route Biryani restaurant
+
+prompt:
+  # The system prompt is the chatbot's policy. Add directives here (quote prices,
+  # confirm the spice level, recommend the signature dish, suggest a pairing) and
+  # the bot's replies - and its scores - change. This baseline keeps it minimal.
+  system: You are the ordering chatbot for Spice Route Biryani.
+  template: |
+    Customer: {input}
+    Chatbot:
+  few_shot: []
+
+model:
+  provider: python              # mock | openai | ollama | python (local callable)
+  name: chatbot.py:reply        # provider 'python' -> path/to/file.py:function
+  version: chatbot-1            # pinned bot version (identity, captured per run)
+  revision: null
+
+sampling:
+  temperature: 0.2              # 0 = deterministic (stability 1.0); higher = more varied
+  top_p: 1.0
+  max_tokens: 200
+  frequency_penalty: 0.0
+  presence_penalty: 0.0
+  stop: null
+  seed: 7
+
+evaluation:
+  embedding_model: hashing-256  # offline default; swap for a sentence-transformers id
+  samples: 6
+  metrics:                      # your own evaluators in evals.py
+    - evals.py:service_checklist
+    - evals.py:captures_order
+    - evals.py:avg_response_length
+  thresholds:
+    drift_warn: 0.15
+    drift_fail: 0.40
+
+inputs:
+  - "Hi! Can I order two chicken biryanis for delivery? What would you recommend?"

@@ -2,10 +2,14 @@
 from __future__ import annotations
 
 import hashlib
+import importlib
+import importlib.util
 import random
 import re
+import sys
 import time
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any
 
 
@@ -17,6 +21,25 @@ class Generation:
     model_version: str
     model_revision: Any
     system_fingerprint: Any
+
+
+@dataclass
+class GenRequest:
+    """Everything a local ``python`` provider callable needs to produce one reply."""
+
+    input: str
+    system: str
+    template: str
+    few_shot: list
+    temperature: float
+    top_p: float
+    max_tokens: int
+    seed: Any
+    sample_index: int
+    model_name: str
+    model_version: str
+    model_revision: Any
+    config: dict
 
 
 class MockProvider:
@@ -163,6 +186,90 @@ class OllamaProvider:
         )
 
 
+def _load_provider_callable(ref: str, base_dir: Path):
+    """Load a ``path/to/file.py:function`` or ``module:function`` callable.
+
+    SECURITY: like custom evaluators, a ``python`` provider executes arbitrary
+    local Python in-process. Treat a shared spec's ``model.name`` as code.
+    """
+    if not ref or ":" not in ref:
+        raise ValueError(
+            "provider 'python' needs model.name = 'path/to/file.py:function' "
+            f"or 'module:function' (got {ref!r})."
+        )
+    target, func_name = ref.rsplit(":", 1)
+    target, func_name = target.strip(), func_name.strip()
+    if target.endswith(".py") or "/" in target or "\\" in target:
+        path = (Path(base_dir) / target).resolve()
+        if not path.exists():
+            raise FileNotFoundError(f"Provider file not found: {path}")
+        module_spec = importlib.util.spec_from_file_location(path.stem, path)
+        module = importlib.util.module_from_spec(module_spec)
+        sys.modules[module_spec.name] = module  # let dataclasses/typing resolve __module__
+        module_spec.loader.exec_module(module)  # executes the user's provider file
+    else:
+        module = importlib.import_module(target)
+    if not hasattr(module, func_name):
+        raise AttributeError(f"Provider callable '{func_name}' not found in {target}.")
+    return getattr(module, func_name)
+
+
+class PythonProvider:
+    """Offline provider backed by a local Python callable.
+
+    With ``provider: python`` the model identity ``model.name`` is a reference
+    ``path/to/file.py:function`` to a callable that receives a :class:`GenRequest`
+    and returns the reply - a string, or a dict with an ``output`` key (and an
+    optional ``tokens`` count). This versions and evaluates a real, self-contained
+    generator (e.g. a rule-based chatbot) fully offline, just like ``mock`` but
+    with behavior you control. Per-sample variation is up to the callable, which
+    can scale it with ``temperature`` to drive the stability score.
+    """
+
+    name = "python"
+
+    def __init__(self, spec, base_dir=None):
+        self.spec = spec
+        self.base_dir = Path(base_dir) if base_dir else Path.cwd()
+        self._fn = _load_provider_callable(spec.model.name, self.base_dir)
+
+    def generate(self, input_text: str, sample_index: int) -> Generation:
+        s = self.spec
+        req = GenRequest(
+            input=input_text,
+            system=s.prompt.system,
+            template=s.prompt.template,
+            few_shot=list(s.prompt.few_shot),
+            temperature=float(s.sampling.temperature),
+            top_p=float(s.sampling.top_p),
+            max_tokens=int(s.sampling.max_tokens),
+            seed=s.sampling.seed,
+            sample_index=sample_index,
+            model_name=s.model.name,
+            model_version=s.model.version,
+            model_revision=s.model.revision,
+            config=s.to_dict(),
+        )
+        start = time.perf_counter()
+        result = self._fn(req)
+        if isinstance(result, dict):
+            text = str(result.get("output", ""))
+            tokens = int(result.get("tokens", len(text.split())))
+        else:
+            text = str(result)
+            tokens = len(text.split())
+        latency = int((time.perf_counter() - start) * 1000) + 1
+        fp = "fp_python_" + hashlib.sha256(str(s.model.name).encode()).hexdigest()[:8]
+        return Generation(
+            output=text,
+            tokens=tokens,
+            latency_ms=latency,
+            model_version=s.model.version,
+            model_revision=s.model.revision,
+            system_fingerprint=fp,
+        )
+
+
 def get_provider(spec):
     provider = (spec.model.provider or "mock").lower()
     if provider == "mock":
@@ -171,4 +278,6 @@ def get_provider(spec):
         return OpenAIProvider(spec)
     if provider == "ollama":
         return OllamaProvider(spec)
+    if provider == "python":
+        return PythonProvider(spec)
     raise ValueError(f"Unknown provider: {provider}")

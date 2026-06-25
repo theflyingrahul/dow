@@ -1,0 +1,29 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64" role="img" aria-label="dow — a robot drifting on tracks">
+  <defs>
+    <linearGradient id="dowBrand" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#5828E0" />
+      <stop offset="1" stop-color="#FF6A3D" />
+    </linearGradient>
+  </defs>
+
+  <!-- Badge -->
+  <rect width="64" height="64" rx="16" fill="url(#dowBrand)" />
+
+  <g fill="none" stroke="#ffffff" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round">
+    <!-- Antennae -->
+    <path d="M27 19 L24.5 13.5" />
+    <path d="M37 19 L39.5 13.5" />
+    <circle cx="24.5" cy="12.4" r="1.7" fill="#ffffff" stroke="none" />
+    <circle cx="39.5" cy="12.4" r="1.7" fill="#ffffff" stroke="none" />
+
+    <!-- Robot head -->
+    <rect x="21" y="19" width="22" height="17" rx="5.5" />
+    <circle cx="28.4" cy="27.6" r="2.1" fill="#ffffff" stroke="none" />
+    <circle cx="35.6" cy="27.6" r="2.1" fill="#ffffff" stroke="none" />
+    <path d="M29 32.4 h6" />
+
+    <!-- Drift trail / tread marks -->
+    <path d="M13 44 C 24 49, 40 49, 50 42" stroke-width="3" stroke-dasharray="0.1 5" />
+    <path d="M16 49 C 25 53, 39 53, 49 47" stroke-width="3" stroke-dasharray="0.1 5" opacity="0.65" />
+  </g>
+</svg>

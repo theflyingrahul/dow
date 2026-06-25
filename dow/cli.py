@@ -9,6 +9,7 @@ from typing import Optional
 import typer
 
 from . import report
+from .dashboard import WEB_DIR, resolve_spec, serve, store_specs, write_payload
 from .embeddings import get_embedder
 from .evaluators import evaluate_version
 from .metrics import output_difference, semantic_drift, stability
@@ -434,6 +435,57 @@ def tree(
             report.console.print(f"```mermaid\n{diagram}\n```")
     else:
         report.print_tree(name, data["versions"], data["stab"], data["parent_of"], data["edges"])
+
+
+@app.command(**_doc("dashboard"))
+def dashboard(
+    spec: Optional[str] = typer.Option(None, "--spec", "-s", help="Spec to display (default: the only/first spec)."),
+    port: int = typer.Option(0, "--port", "-p", help="Port to serve on (0 picks a free port)."),
+    host: str = typer.Option("127.0.0.1", "--host", help="Interface to bind (localhost by default)."),
+    no_open: bool = typer.Option(False, "--no-open", help="Do not open a browser window automatically."),
+    export: Optional[str] = typer.Option(None, "--export", help="Write the live data to a JSON file and exit (no server)."),
+) -> None:
+    """Open the web dashboard backed by your live behavior store."""
+    root = _root()
+    name = resolve_spec(root, spec)
+    if name is None:
+        report.console.print(
+            "[yellow]No versions yet.[/yellow] Run [bold]dow run[/bold] to capture one, "
+            "then open the dashboard."
+        )
+        raise typer.Exit(code=1)
+    specs = store_specs(root)
+    if spec is None and len(specs) > 1:
+        report.console.print(
+            f"[dim]Multiple specs found ({', '.join(specs)}); showing [bold]{name}[/bold]. "
+            "Use --spec to choose another.[/dim]"
+        )
+
+    if export:
+        payload = write_payload(root, name, export)
+        report.console.print(
+            f"[green]Wrote[/green] {export}  ({len(payload['versions'])} versions of {name})."
+        )
+        return
+
+    if not (WEB_DIR / "index.html").exists():
+        report.console.print(
+            "[yellow]Dashboard assets are not bundled in this install.[/yellow]\n"
+            "Build them once with:\n"
+            "  [bold]cd dashboard && npm install && npm run build[/bold]"
+        )
+        raise typer.Exit(code=1)
+
+    def _announce(url: str) -> None:
+        report.console.print(
+            f"[green]dow dashboard[/green] serving [bold]{name}[/bold] at [cyan]{url}[/cyan]"
+        )
+        report.console.print(
+            "[dim]Reflects your .dow store live - re-run 'dow run' and refresh. "
+            "Press Ctrl+C to stop.[/dim]"
+        )
+
+    serve(root, name, host=host, port=port, open_browser=not no_open, on_start=_announce)
 
 
 def _echo_help(command, ctx) -> None:
