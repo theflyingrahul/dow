@@ -1,5 +1,9 @@
 # dow - Drift Observation Workbench
 
+<p align="center">
+  <img src="logo.png" alt="dow - Drift Observation Workbench" width="480">
+</p>
+
 Track how your AI's behavior changes across versions. Version the complete
 inference specification (prompt, model identity and version, sampling settings,
 evaluation configuration), execute it, and measure semantic drift, stability, and

@@ -5,3 +5,5 @@ __pycache__/
 build/
 dist/
 .dow/
+VIDEO_SCRIPT.md
+KLING_VIDEO_PROMPTS.md

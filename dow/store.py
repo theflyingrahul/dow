@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import Optional
 
 from .gitstore import GitError, GitStore
+from .spec import flatten
 
 STORE_DIR = ".dow"
 
@@ -58,6 +59,40 @@ class Store:
         return {}
 
     # -- records ---------------------------------------------------------- #
+    def _change_summary(self, spec_name: str, parent: Optional[str], new_config: dict):
+        """Describe how ``new_config`` differs from its parent version.
+
+        Returns ``(subject, [(field, old, new), ...])`` used to build a proper,
+        descriptive commit message instead of a bare version label.
+        """
+        if not parent:
+            return "Initial version", []
+        try:
+            parent_config = self.get_record(spec_name, parent)["config"]
+        except Exception:
+            return "Update configuration", []
+        before, after = flatten(parent_config), flatten(new_config)
+        changes = [
+            (k, before.get(k), after.get(k))
+            for k in sorted(set(before) | set(after))
+            if before.get(k) != after.get(k)
+        ]
+        if not changes:
+            return "Re-run with unchanged configuration", []
+        fields = [field for field, _, _ in changes]
+        if len(fields) == 1:
+            subject = f"Change {fields[0]}"
+        else:
+            shown = ", ".join(fields[:3])
+            more = f" (+{len(fields) - 3} more)" if len(fields) > 3 else ""
+            subject = f"Change {shown}{more}"
+        return subject, changes
+
+    @staticmethod
+    def _short(value, limit: int = 80) -> str:
+        text = str(value).replace("\n", " ").strip()
+        return text if len(text) <= limit else text[: limit - 1] + "\u2026"
+
     def add_version(
         self, spec_name: str, record: dict, message: str = "", parent: Optional[str] = None
     ) -> str:
@@ -84,9 +119,22 @@ class Store:
         )
         self._save_index(index)
 
+        subject_auto, changes = self._change_summary(spec_name, parent, record["config"])
+        subject = message.strip() if message and message.strip() else subject_auto
+        body = [
+            f"Version: {vid}" + (f" (branched from {parent})" if parent else " (root)"),
+            f"Spec: {spec_name} @ {record.get('spec_fingerprint', 'n/a')}",
+            f"Stability: {record['metrics']['stability']}",
+        ]
+        if changes:
+            body.append("")
+            body.append("Configuration changes:")
+            body += [f"  {f}: {self._short(a)} -> {self._short(b)}" for f, a, b in changes]
+        full_message = subject + "\n\n" + "\n".join(body)
+
         self.git.add("-A")
         try:
-            sha = self.git.commit(f"{spec_name} {vid}: {message or 'run'}")
+            sha = self.git.commit(full_message)
             self.git.tag(f"{spec_name}-{vid}", sha)
         except GitError:
             pass
@@ -108,7 +156,7 @@ class Store:
                     tags.append(tag)
                 break
         self._save_index(index)
-        self._commit(f"{spec_name} {version_id}: tag {tag}")
+        self._commit(f"Tag {spec_name} {version_id} as '{tag}'")
 
     def latest_with_tag(self, spec_name: str, tag: str):
         t = (tag or "").strip().lower()
@@ -131,7 +179,7 @@ class Store:
                 v["eval"] = eval_result.get("metrics", {})
                 break
         self._save_index(index)
-        self._commit(f"{spec_name} {version_id}: eval")
+        self._commit(f"Record evaluation of {spec_name} {version_id}")
 
     def _commit(self, message: str) -> None:
         self.git.add("-A")
