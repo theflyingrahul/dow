@@ -1,6 +1,10 @@
 [build-system]
 requires = ["setuptools>=68"]
-build-backend = "setuptools.build_meta"
+# In-tree backend (build_backend.py) compiles the dashboard into dow/web before
+# setuptools packages it, so wheels always bundle fresh UI assets. Set
+# DOW_SKIP_DASHBOARD_BUILD=1 to skip the npm build.
+build-backend = "build_backend"
+backend-path = ["."]
 
 [project]
 name = "dow"

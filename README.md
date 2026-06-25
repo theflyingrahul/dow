@@ -94,8 +94,12 @@ another terminal and use the **Refresh** button to see them. With no captured
 versions yet, run `dow commit` first.
 
 The UI ships prebuilt with the package, so a regular `pip install` is all you
-need. If you're working from a source checkout that hasn't been built yet, build
-it once (requires Node 18+):
+need. Building a distribution (`python -m build` or `pip wheel .`) compiles the
+dashboard automatically through the in-tree build backend
+([build_backend.py](build_backend.py)), so released wheels always contain fresh
+assets - this needs Node 18+ at build time. Set `DOW_SKIP_DASHBOARD_BUILD=1` to
+skip it (for example, CI that builds the UI in a separate step). To build the
+bundle yourself from a source checkout:
 
 ```bash
 cd dashboard
