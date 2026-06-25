@@ -273,17 +273,18 @@ def avg_word_count(ctx):
     return sum(counts) / len(counts) if counts else 0.0
 ```
 
-`dow eval` runs the configured evaluators, saves the scores into the version record so they travel with the commit, and reports them against the previous version and the last version tagged as good. Evaluation runs automatically on `dow run` and is lazy thereafter: saved results are reused unless `--rerun` is passed. Any version can be labelled with `dow tag` (for example `good`, `golden`, `baseline`), and `dow eval --good-tag <label>` selects which label marks the known-good baseline.
+`dow eval` runs the configured evaluators, saves the scores into the version record so they travel with the commit, and reports them against the previous version and the last version tagged as good. Evaluation runs automatically on `dow commit` and is lazy thereafter: saved results are reused unless `--rerun` is passed. Any version can be labelled with `dow tag` (for example `good`, `golden`, `baseline`), and `dow eval --good-tag <label>` selects which label marks the known-good baseline.
 
 ---
 
 ## 7. Command-Line Interface
 
-The commands are task-oriented, not version-control plumbing. Versioning is automatic: every run captures a named version (`v1`, `v2`, and so on). There is no init, staging, commit, tagging, or refs to learn, and Git stays hidden as the storage backend.
+The commands are task-oriented, not version-control plumbing. Versioning is automatic: every commit captures a named version (`v1`, `v2`, and so on). There is no staging or refs to learn, and Git stays hidden as the storage backend; `dow init` only scaffolds a starter spec.
 
 | Command | Purpose |
 |---|---|
-| `dow run` | Run the specification and capture its behavior as a new version |
+| `dow init` | Scaffold a starter spec and evals.py to begin versioning |
+| `dow commit` | Run the specification and capture its behavior as a new version |
 | `dow compare [A] [B]` | Compare two versions - output difference, semantic drift, stability, verdict (defaults to the last two) |
 | `dow explain [A] [B]` | Explain why behavior changed: attribute it to the configuration difference (Section 8) |
 | `dow history` | List captured versions and their stability |
@@ -293,20 +294,20 @@ The commands are task-oriented, not version-control plumbing. Versioning is auto
 | `dow tree` | Visualize evolution: a vertical trunk with branches, as a terminal tree or an exported Mermaid `gitGraph` |
 | `dow dashboard` | Open a local, read-only web dashboard of versions, drift, and verdicts, backed live by the store |
 
-Versions are referred to by simple names (`v1`, `v2`), the shortcuts `last` and `prev`, or any label applied with `dow tag` (for example `good`). They form a tree: every run records its parent, and `dow run --from v1` starts a new branch from an earlier version. Command output is rendered in the terminal; for a visual view, `dow dashboard` serves a local, read-only web UI of the same data.
+Versions are referred to by simple names (`v1`, `v2`), the shortcuts `last` and `prev`, or any label applied with `dow tag` (for example `good`). They form a tree: every commit records its parent, and `dow commit --from v1` starts a new branch from an earlier version. Command output is rendered in the terminal; for a visual view, `dow dashboard` serves a local, read-only web UI of the same data.
 
 Example session:
 
 ```
-$ dow run
-Created specs/summarization.yaml. Edit it, then run dow run again.
+$ dow init
+Created specs/summarization.yaml, evals.py. Edit specs/summarization.yaml, then run dow commit to capture v1.
 
-$ dow run
+$ dow commit
 Captured v1   stability 0.72
 
 # raise the temperature in specs/summarization.yaml
 
-$ dow run
+$ dow commit
 Captured v2   stability 0.53
 
 $ dow compare
@@ -368,7 +369,7 @@ Approximately eight to nine hours, organized by component and parallelizable acr
 | Time | Versioning and runtime | Metrics and interface |
 |---|---|---|
 | 0:00-1:00 | Specification schema; behavior store (automatic versioning, Git-backed) | Scaffold the CLI with Typer and Rich; implement the mock provider |
-| 1:00-2:30 | Runner: N samples and full runtime capture; `dow run` end to end | Embedding integration with batched calls |
+| 1:00-2:30 | Runner: N samples and full runtime capture; `dow commit` end to end | Embedding integration with batched calls |
 | 2:30-3:30 | Version resolution and record lookup; seed example specifications | Metrics engine: difference, drift, stability, verdict |
 | 3:30-4:30 | Specification diff between versions | `dow compare` report rendering in the terminal |
 | 4:30-6:00 | `dow explain` attribution and confounded-comparison detection | `dow history` and `dow inspect` |
@@ -407,8 +408,8 @@ For a single contributor, implement the components in MVP order and rely on mock
 ## 12. Demonstration Script (approximately two minutes)
 
 1. Context: code has Git, but AI behavior has no equivalent versioning layer.
-2. Run the specification with `dow run`; show the captured version (v1) and its stability.
-3. Change a single field, for example the temperature, and run `dow run` again to capture v2.
+2. Run the specification with `dow commit`; show the captured version (v1) and its stability.
+3. Change a single field, for example the temperature, and run `dow commit` again to capture v2.
 4. Run `dow compare` and `dow explain`: semantic drift rises and stability falls, attributed to the single configuration change.
 5. Close: the tool versions the entire inference specification and attributes every behavioral change to a specific configuration change.
 
@@ -425,10 +426,10 @@ pip install -e ".[openai]"        # optional, for hosted models
 pip install -e ".[local]"         # optional, for local sentence-transformers embeddings
 
 # Capture and compare versions (versioning is automatic)
-dow run                 # first run scaffolds an example spec
-dow run                 # captures v1
+dow init                # scaffold an example spec
+dow commit              # captures v1
 # change one field in specs/summarization.yaml (for example, temperature), then:
-dow run                 # captures v2
+dow commit              # captures v2
 dow compare             # v1 vs v2
 dow explain             # what caused the change
 ```
@@ -443,7 +444,7 @@ The tool runs entirely offline by default (mock provider and a built-in hashing 
 - [ ] Execution records runtime metadata (model version and revision, system fingerprint, seed, library versions) and saves the version durably in the Git-backed store.
 - [ ] `dow compare` reports the configuration difference, output difference, semantic drift, stability, and a verdict.
 - [ ] `dow explain` attributes a behavioral change to the configuration difference and flags confounded comparisons.
-- [ ] `dow tree` visualizes the version evolution (terminal tree and exported Mermaid), with branches via `dow run --from`.
+- [ ] `dow tree` visualizes the version evolution (terminal tree and exported Mermaid), with branches via `dow commit --from`.
 - [ ] Users can plug in custom evaluators (`evaluation.metrics`); `dow eval` runs them lazily, saves the scores with the version, and compares against the previous and last-good versions.
 - [ ] `dow tag` applies free-form labels (good, golden, baseline, ...) that are usable as version references.
 - [ ] The tool runs end to end offline through mock or local mode.

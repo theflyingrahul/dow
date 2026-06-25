@@ -1,8 +1,10 @@
 """dow command-line interface.
 
 Task-oriented commands focused on behavioral analysis. Versioning is automatic
-and the Git-backed store is hidden - there is no init, staging, or refs.
+and the Git-backed store is hidden - no staging or refs; 'dow init' only
+scaffolds a starter spec.
 """
+import sys
 from pathlib import Path
 from typing import Optional
 
@@ -23,7 +25,7 @@ app = typer.Typer(
     no_args_is_help=True,
     context_settings={"help_option_names": []},
     help="Drift Observation Workbench - track how your AI's behavior changes across versions.",
-    epilog="Run 'dow help <command>' for a full description and examples, e.g. 'dow help run'.",
+    epilog="Run 'dow help <command>' for a full description and examples, e.g. 'dow help commit'.",
 )
 
 SPECS_DIR = "specs"
@@ -115,6 +117,13 @@ def _spec_files() -> list:
     return sorted(d.glob("*.yaml")) if d.is_dir() else []
 
 
+def _render_example_spec(name: str) -> str:
+    """Starter spec text with its header and name field set to the chosen name."""
+    return EXAMPLE_SPEC.replace(
+        f"# specs/{EXAMPLE_NAME}.yaml", f"# specs/{name}.yaml", 1
+    ).replace(f"name: {EXAMPLE_NAME}", f"name: {name}", 1)
+
+
 def _find_spec_name(name: Optional[str]) -> Optional[str]:
     if name:
         return Path(name).stem
@@ -130,7 +139,7 @@ def _find_spec_name(name: Optional[str]) -> Optional[str]:
 def _need_spec(name: Optional[str]) -> str:
     resolved = _find_spec_name(name)
     if not resolved:
-        raise typer.BadParameter("No spec found. Run 'dow commit' to get started.")
+        raise typer.BadParameter("No spec found. Run 'dow init' to get started.")
     return resolved
 
 
@@ -238,6 +247,32 @@ def _doc(name: str) -> dict:
 # --------------------------------------------------------------------------- #
 # commands
 # --------------------------------------------------------------------------- #
+@app.command(**_doc("init"))
+def init(
+    name: str = typer.Argument(
+        EXAMPLE_NAME, help="Name for the new spec (creates specs/<name>.yaml)."
+    ),
+) -> None:
+    """Scaffold a starter spec (and evals.py) so you can start versioning."""
+    stem = Path(name).stem  # tolerate 'specs/foo.yaml' or 'foo.yaml'
+    path = _spec_path(stem)
+    if path.exists():
+        raise typer.BadParameter(
+            f"Spec already exists: specs/{stem}.yaml (edit it, then 'dow commit')."
+        )
+    _specs_dir().mkdir(parents=True, exist_ok=True)
+    path.write_text(_render_example_spec(stem), encoding="utf-8")
+    created = [f"specs/{stem}.yaml"]
+    evals_path = _root() / "evals.py"
+    if not evals_path.exists():
+        evals_path.write_text(EXAMPLE_EVALS, encoding="utf-8")
+        created.append("evals.py")
+    report.console.print(
+        f"[green]Created[/green] {', '.join(created)}.\n"
+        f"Edit [bold]specs/{stem}.yaml[/bold], then run [bold]dow commit[/bold] to capture v1."
+    )
+
+
 @app.command(**_doc("commit"))
 def commit(
     spec: Optional[str] = typer.Argument(None, help="Spec file or name (optional)."),
@@ -245,19 +280,6 @@ def commit(
     from_: Optional[str] = typer.Option(None, "--from", help="Branch from an earlier version instead of the latest."),
 ) -> None:
     """Run your spec and capture its behavior as a new version."""
-    files = _spec_files()
-    if not files and not spec:
-        _specs_dir().mkdir(parents=True, exist_ok=True)
-        _spec_path(EXAMPLE_NAME).write_text(EXAMPLE_SPEC, encoding="utf-8")
-        evals_path = _root() / "evals.py"
-        if not evals_path.exists():
-            evals_path.write_text(EXAMPLE_EVALS, encoding="utf-8")
-        report.console.print(
-            f"[green]Created[/green] specs/{EXAMPLE_NAME}.yaml and evals.py. "
-            "Edit them, then run [bold]dow commit[/bold] again."
-        )
-        return
-
     name = _need_spec(spec)
     path = _spec_path(name)
     if not path.exists():
@@ -352,15 +374,48 @@ def tag(
 def evaluate(
     version: Optional[str] = typer.Argument(None, help="Version to evaluate (default: latest)."),
     rerun: bool = typer.Option(False, "--rerun", help="Re-run evaluators even if results are saved."),
+    draft: bool = typer.Option(
+        False, "--draft", help="Evaluate the current working spec without committing a version."
+    ),
     good_tag: str = typer.Option("good", "--good-tag", help="Tag that marks the known-good baseline."),
     spec: Optional[str] = typer.Option(None, "--spec", "-s"),
 ) -> None:
     """Run custom evaluators on a version; compare to the previous and last-good versions."""
     name = _need_spec(spec)
     store = Store(_root())
+
+    if draft:
+        # Preview: execute the working spec and score it without persisting a version.
+        path = _spec_path(name)
+        if not path.exists():
+            raise typer.BadParameter(f"Spec not found: {path}")
+        record = execute(InferenceSpec.load(path))
+        refs = record["config"]["evaluation"].get("metrics", [])
+        if not refs:
+            report.console.print(
+                "[yellow]No evaluators configured.[/yellow] Add 'metrics' under 'evaluation' "
+                "in your spec, e.g.\n  metrics:\n    - evals.py:avg_word_count"
+            )
+            return
+        result = evaluate_version(record, _root())
+        existing = store.list_versions(name)
+        prev_id = existing[-1]["id"] if existing else None
+        good_id = store.latest_with_tag(name, good_tag)
+        prev_eval = _ensure_eval(store, name, prev_id) if prev_id else None
+        good_eval = _ensure_eval(store, name, good_id) if good_id else None
+        report.print_eval(name, "draft", result, prev_id, prev_eval, good_tag, good_id, good_eval)
+        report.console.print(
+            "  [dim]draft preview - nothing was committed. "
+            "Run [bold]dow commit[/bold] to capture this as a version.[/dim]"
+        )
+        return
+
     versions = store.list_versions(name)
     if not versions:
-        raise typer.BadParameter("No versions yet. Run 'dow commit' first.")
+        raise typer.BadParameter(
+            "No versions yet. Run 'dow commit' first, "
+            "or 'dow eval --draft' to preview your working spec."
+        )
     ids = [v["id"] for v in versions]
     vid = _resolve(store, name, version or "last")
     refs = store.get_record(name, vid)["config"]["evaluation"].get("metrics", [])
@@ -488,6 +543,10 @@ def dashboard(
     serve(root, name, host=host, port=port, open_browser=not no_open, on_start=_announce)
 
 
+# `dow dash` is a hidden shorthand for `dow dashboard`.
+app.command("dash", hidden=True, **_doc("dashboard"))(dashboard)
+
+
 def _echo_help(command, ctx) -> None:
     """Render a command's help. Typer prints the Rich help as a side effect of
     get_help and returns an empty string; the echo covers any plain-text fallback."""
@@ -506,6 +565,7 @@ def help_command(
     cli = typer.main.get_command(app)
     root_ctx = typer.Context(cli, info_name="dow", help_option_names=[])
     if command is None:
+        _print_banner()
         _echo_help(cli, root_ctx)
         return
     sub = cli.get_command(root_ctx, command)
@@ -649,27 +709,28 @@ _BANNER = r"""
 ╚═════╝  ╚═════╝  ╚══╝╚══╝
 """
 
-_WELCOME_MARKER = Path.home() / ".dow" / ".welcomed"
 
-
-def _show_welcome_once() -> None:
-    """Print the dow banner the first time the command is ever run."""
-    if _WELCOME_MARKER.exists():
-        return
-    report.console.print(f"[bold cyan]{_BANNER}[/bold cyan]")
-    report.console.print(
-        "[dim]Drift Observation Workbench - "
-        "track how your AI's behavior changes across versions.[/dim]\n"
-    )
+def _print_banner() -> None:
+    """Print the dow ASCII banner. Shown on the overview only - bare `dow` and
+    `dow help` - every time, and never for any other command."""
     try:
-        _WELCOME_MARKER.parent.mkdir(parents=True, exist_ok=True)
-        _WELCOME_MARKER.touch()
-    except OSError:
-        pass
+        report.console.print(f"[bold cyan]{_BANNER}[/bold cyan]")
+    except UnicodeEncodeError:
+        pass  # decorative only; never let a legacy console break the command
 
 
 def main() -> None:
-    _show_welcome_once()
+    # UTF-8 output so the banner and box-drawing art survive redirection on Windows
+    # (a piped stdout otherwise defaults to cp1252 and cannot encode the glyphs).
+    for _stream in (sys.stdout, sys.stderr):
+        try:
+            _stream.reconfigure(encoding="utf-8")
+        except (AttributeError, ValueError):
+            pass
+    # Banner on the bare `dow` overview (no_args_is_help prints the command list);
+    # `dow help` prints it from help_command. Every other command stays quiet.
+    if len(sys.argv) <= 1:
+        _print_banner()
     app()
 
 

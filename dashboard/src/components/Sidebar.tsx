@@ -119,11 +119,8 @@ function SidebarInner({ onNavigate }: { onNavigate?: () => void }) {
             onNavigate?.();
           }}
         >
-          New Run
+          New Version
         </Button>
-        <p className="mt-3 px-1 text-center text-2xs text-muted">
-          Offline mock data · no backend required
-        </p>
       </div>
     </div>
   );

@@ -195,7 +195,7 @@ export interface ServerComparison {
   verdictLabel: VerdictLabel;
 }
 
-/** Payload from the "New Run" modal used to synthesize a child version. */
+/** Payload from the "New Version" modal used to synthesize a child version. */
 export interface NewRunInput {
   baseVersionId: string;
   note: string;
