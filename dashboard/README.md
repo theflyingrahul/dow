@@ -5,8 +5,10 @@ full AI inference spec and measures **semantic drift**, **stability**, and
 **regressions** across versions. Built with **React + TypeScript + Tailwind CSS**.
 
 > Run it with **`dow dashboard`** and the UI is backed by your **live `.dow`
-> store**: a small local server (read-only, localhost-only) serves the captured
-> versions as JSON and this prebuilt bundle. Run it **standalone** with
+> store**: a small local server (localhost-only) serves the captured versions as
+> JSON and this prebuilt bundle, and exposes a localhost-only write API so you
+> can edit the spec and capture versions from the UI (including the first one
+> after `dow init`). Run it **standalone** with
 > `npm run dev` and it falls back to **typed mock data** so the front end can be
 > developed without a store. Either way the drift score, stability delta, and
 > pass / warn / fail verdict render through `lib/drift.ts` — in live mode reusing

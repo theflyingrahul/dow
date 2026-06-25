@@ -167,6 +167,15 @@ interface AppStore {
   commitPreview: () => void;
   /** Discard the preview and return to editing the spec. */
   discardPreview: () => void;
+
+  /** Live server accepts spec edits + commits (vs read-only live or mock). */
+  editable: boolean;
+  /** Active spec name, and its raw YAML when served live (for the editor). */
+  specName: string | null;
+  specText: string | null;
+  isSpecEditorOpen: boolean;
+  openSpecEditor: () => void;
+  closeSpecEditor: () => void;
 }
 
 const StoreContext = createContext<AppStore | null>(null);
@@ -185,6 +194,7 @@ export function AppStoreProvider({
   const [compareToId, setCompareToId] = useState<string>(dataset.compareToId);
   const [isNewRunOpen, setNewRunOpen] = useState(false);
   const [draftVersion, setDraftVersion] = useState<Version | null>(null);
+  const [isSpecEditorOpen, setSpecEditorOpen] = useState(false);
 
   const headId = dataset.headId;
 
@@ -280,6 +290,12 @@ export function AppStoreProvider({
       previewNewRun,
       commitPreview,
       discardPreview,
+      editable: dataset.editable,
+      specName: dataset.specName,
+      specText: dataset.specText,
+      isSpecEditorOpen,
+      openSpecEditor: () => setSpecEditorOpen(true),
+      closeSpecEditor: () => setSpecEditorOpen(false),
     }),
     [
       versions,
@@ -300,6 +316,10 @@ export function AppStoreProvider({
       previewNewRun,
       commitPreview,
       discardPreview,
+      dataset.editable,
+      dataset.specName,
+      dataset.specText,
+      isSpecEditorOpen,
     ],
   );
 

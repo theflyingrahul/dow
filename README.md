@@ -88,10 +88,12 @@ dow dashboard --port 8080 --no-open # bind a fixed port and don't launch a brows
 dow dashboard --export data.json    # write the underlying JSON without starting a server
 ```
 
-The server binds to `localhost` only and is read-only: it never modifies your
-store. It reflects the store live - capture more versions with `dow commit` in
-another terminal and use the **Refresh** button to see them. With no captured
-versions yet, run `dow commit` first.
+The server binds to `localhost` only and accepts edits from the local machine
+only. It reflects the store live - capture more versions with `dow commit` in
+another terminal and use the **Refresh** button to see them. You can also edit
+the spec and capture versions straight from the UI: open the dashboard right
+after `dow init` (before any commit) and use **Capture your first version** to
+make `v1`, or **Edit spec** to tweak the spec and capture again.
 
 The UI ships prebuilt with the package, so a regular `pip install` is all you
 need. Building a distribution (`python -m build` or `pip wheel .`) compiles the

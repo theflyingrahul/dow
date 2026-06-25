@@ -2,7 +2,7 @@ import { useStore } from '../store/AppStore';
 import type { ViewKey } from '../types';
 import { Button } from './ui/Button';
 import { ThemeToggle } from './ThemeToggle';
-import { IconMenu, IconPlus, IconRefresh } from './ui/icons';
+import { IconMenu, IconPlus, IconRefresh, IconSliders } from './ui/icons';
 
 const TITLES: Record<ViewKey, { kicker: string; title: string }> = {
   dashboard: { kicker: 'Overview', title: 'Behavior Dashboard' },
@@ -11,7 +11,8 @@ const TITLES: Record<ViewKey, { kicker: string; title: string }> = {
 };
 
 export function TopBar({ onOpenMobile }: { onOpenMobile: () => void }) {
-  const { view, selectedId, versionsById, setView, openNewRun, isLive } = useStore();
+  const { view, selectedId, versionsById, setView, openNewRun, isLive, editable, versions, openSpecEditor } =
+    useStore();
   const meta = TITLES[view];
   const selected = versionsById[selectedId];
   const refresh = () => window.location.reload();
@@ -53,6 +54,17 @@ export function TopBar({ onOpenMobile }: { onOpenMobile: () => void }) {
 
           {isLive ? (
             <>
+              {editable && versions.length > 0 && (
+                <Button
+                  variant="ghost"
+                  onClick={openSpecEditor}
+                  iconLeft={<IconSliders className="h-4 w-4" />}
+                  className="hidden sm:inline-flex"
+                  title="Edit the spec and capture a version"
+                >
+                  Edit spec
+                </Button>
+              )}
               <Button
                 variant="primary"
                 onClick={refresh}

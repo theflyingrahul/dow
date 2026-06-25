@@ -73,7 +73,8 @@ function NavItem({ def, active, onSelect }: { def: NavDef; active: boolean; onSe
 }
 
 function SidebarInner({ onNavigate }: { onNavigate?: () => void }) {
-  const { view, setView, versions, headId, versionsById, openNewRun } = useStore();
+  const { view, setView, versions, headId, versionsById, openNewRun, editable, specName, openSpecEditor } =
+    useStore();
   const head = versionsById[headId];
 
   return (
@@ -98,7 +99,9 @@ function SidebarInner({ onNavigate }: { onNavigate?: () => void }) {
       {/* Spec summary card */}
       <div className="rounded-2xl border border-border bg-surface/60 p-4">
         <p className="kicker mb-2">Active spec</p>
-        <p className="font-mono text-sm font-semibold text-ink">{head?.config.name ?? '—'}</p>
+        <p className="font-mono text-sm font-semibold text-ink">
+          {head?.config.name ?? specName ?? '—'}
+        </p>
         <p className="mt-0.5 text-2xs leading-relaxed text-muted">{head?.config.task}</p>
         <div className="mt-3 flex items-center gap-3 text-2xs text-muted">
           <span className="inline-flex items-center gap-1">
@@ -115,7 +118,9 @@ function SidebarInner({ onNavigate }: { onNavigate?: () => void }) {
           block
           iconLeft={<IconPlus className="h-4 w-4" />}
           onClick={() => {
-            openNewRun();
+            // Live mode edits the real spec + commits; mock mode synthesizes one.
+            if (editable) openSpecEditor();
+            else openNewRun();
             onNavigate?.();
           }}
         >
