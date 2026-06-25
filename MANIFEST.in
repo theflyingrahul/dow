@@ -1,0 +1,7 @@
+# Ship the prebuilt dashboard so source installs work without Node.
+# (dow/web is gitignored but is produced by the build backend before packaging.)
+recursive-include dow/web *
+include man/dow.1
+# The in-tree PEP 517 backend must travel in the sdist so a wheel can be built
+# from it (pip builds via sdist); without it the backend is unimportable.
+include build_backend.py
