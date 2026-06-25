@@ -23,10 +23,11 @@ Guiding principle for a one-day build: protect the minimum viable product (MVP) 
 - Token-level difference highlighting.
 - A regression gate that returns a non-zero exit code for use in automation.
 - Run records stored as Git notes attached to specification commits.
+- A local, read-only web dashboard for browsing versions, drift, and verdicts (implemented: `dow dashboard`).
 
 ### Out of scope
-- Web application, browser interface, or hosted service.
-- REST API, CORS, or client-server networking.
+- A hosted or multi-user web service (the `dow dashboard` viewer is local and read-only, bound to localhost).
+- A public REST API, CORS, or client-server networking beyond the local dashboard's localhost JSON feed.
 - Authentication, multi-user support, or a managed database.
 - Model fine-tuning.
 
@@ -34,7 +35,7 @@ Guiding principle for a one-day build: protect the minimum viable product (MVP) 
 
 ## 2. Architecture
 
-The tool is a single local command-line application with a small, task-oriented command set. Versioning is automatic, and Git is an internal storage backend that users never invoke directly. There is no server, no network API, and no web interface; all execution is local.
+The tool is a single local command-line application with a small, task-oriented command set. Versioning is automatic, and Git is an internal storage backend that users never invoke directly. All execution is local and CLI-first; the optional `dow dashboard` command adds a local, read-only web viewer (a localhost-only server that serves the store as JSON), but there is no hosted service or networked API.
 
 ```mermaid
 flowchart TD
@@ -290,8 +291,9 @@ The commands are task-oriented, not version-control plumbing. Versioning is auto
 | `dow tag <label> [version]` | Tag a version with a free-form label: good, golden, baseline, bad, ... |
 | `dow eval [version]` | Run custom evaluators; compare scores against the previous and last-good versions |
 | `dow tree` | Visualize evolution: a vertical trunk with branches, as a terminal tree or an exported Mermaid `gitGraph` |
+| `dow dashboard` | Open a local, read-only web dashboard of versions, drift, and verdicts, backed live by the store |
 
-Versions are referred to by simple names (`v1`, `v2`), the shortcuts `last` and `prev`, or any label applied with `dow tag` (for example `good`). They form a tree: every run records its parent, and `dow run --from v1` starts a new branch from an earlier version. All output is rendered in the terminal; there is no web or graphical interface.
+Versions are referred to by simple names (`v1`, `v2`), the shortcuts `last` and `prev`, or any label applied with `dow tag` (for example `good`). They form a tree: every run records its parent, and `dow run --from v1` starts a new branch from an earlier version. Command output is rendered in the terminal; for a visual view, `dow dashboard` serves a local, read-only web UI of the same data.
 
 Example session:
 
