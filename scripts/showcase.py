@@ -6,14 +6,16 @@ versions across a trunk and three branches, changing exactly one configuration
 field at a time (plus one deliberately "confounded" change), then runs the full
 analysis surface:
 
-  - run                capture trunk versions v1..v5 (auto-evaluated on capture)
-  - run --from         fork branches v6, v7, v8 from earlier versions
+  - init               scaffold the spec and evals.py to start from
+  - commit             capture trunk versions v1..v5 (auto-evaluated on capture)
+  - commit --from      fork branches v6, v7, v8 from earlier versions
   - tag                label versions: baseline, good, golden, bad, candidate
   - history            the whole tree with stability and tags
   - inspect            one version's spec, runtime, outputs, tags, eval scores
   - compare            outputs / drift / stability / verdict (version & tag refs)
   - explain            causal attribution: single cause vs a confounded change
   - eval               custom metrics vs the previous and a known-good version
+  - eval --draft       preview the working spec's scores without committing
   - tree / tree -o     terminal evolution tree + a shareable Mermaid diagram
   - help               the built-in documentation
 
@@ -164,12 +166,16 @@ def main():
     args = parser.parse_args()
 
     root = Path(args.dir).resolve() if args.dir else Path(tempfile.mkdtemp(prefix="dow_showcase_"))
-    specs = root / "specs"
-    specs.mkdir(parents=True, exist_ok=True)
-    spec = specs / "support_summarizer.yaml"
-    (root / "evals.py").write_text(EVALS, encoding="utf-8")
+    root.mkdir(parents=True, exist_ok=True)
+    spec = root / "specs" / "support_summarizer.yaml"
 
     console.print(f"[bold]dow showcase[/bold]  ->  {root}")
+
+    # ----- scaffold the project, then replace the starter files with our own --
+    step("init  -  scaffold specs/support_summarizer.yaml and evals.py", args.pause)
+    if not spec.exists():
+        dow(root, "init", "support_summarizer")
+    (root / "evals.py").write_text(EVALS, encoding="utf-8")  # richer evaluators than the starter
 
     # ----- build a trunk: one change per version, auto-evaluated on capture ---
     step("v1  -  baseline (temperature 0.2)", args.pause)
@@ -234,6 +240,10 @@ def main():
 
     step("eval --good-tag golden v7  -  compare a branch against the golden version", args.pause)
     dow(root, "eval", "--good-tag", "golden", "v7")
+
+    step("eval --draft  -  preview an uncommitted spec edit; nothing is captured", args.pause)
+    write_spec(spec, system=S2, template=T2, model_version=M2, temperature=0.4)
+    dow(root, "eval", "--draft")
 
     step("tree  -  how behavior evolved across the trunk and branches", args.pause)
     dow(root, "tree")
