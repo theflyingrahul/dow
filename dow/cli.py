@@ -588,7 +588,36 @@ def man_command(
     )
 
 
+_BANNER = r"""
+██████╗  ██████╗ ██╗    ██╗
+██╔══██╗██╔═══██╗██║    ██║
+██║  ██║██║   ██║██║ █╗ ██║
+██║  ██║██║   ██║██║███╗██║
+██████╔╝╚██████╔╝╚███╔███╔╝
+╚═════╝  ╚═════╝  ╚══╝╚══╝
+"""
+
+_WELCOME_MARKER = Path.home() / ".dow" / ".welcomed"
+
+
+def _show_welcome_once() -> None:
+    """Print the dow banner the first time the command is ever run."""
+    if _WELCOME_MARKER.exists():
+        return
+    report.console.print(f"[bold cyan]{_BANNER}[/bold cyan]")
+    report.console.print(
+        "[dim]Drift Observation Workbench - "
+        "track how your AI's behavior changes across versions.[/dim]\n"
+    )
+    try:
+        _WELCOME_MARKER.parent.mkdir(parents=True, exist_ok=True)
+        _WELCOME_MARKER.touch()
+    except OSError:
+        pass
+
+
 def main() -> None:
+    _show_welcome_once()
     app()
 
 
