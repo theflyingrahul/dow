@@ -4,6 +4,23 @@ All notable changes to dow are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/), and dow adheres to
 [Semantic Versioning](https://semver.org/).
 
+## [2.0.3] - 2026-07-11
+
+### Added
+- **`dow --version` / `dow -V`.** A top-level flag now prints the installed
+  version and exits. The version was already computed for the man-page header
+  but was not reachable from the command line.
+
+### Fixed
+- **Man page dropped any prose line that began with `'` or `.`.** A wrapped
+  documentation sentence starting with an apostrophe or period (e.g. init's
+  "'dow commit' to capture v1 ...") is a roff *control* line, so troff silently
+  swallowed it and warned `macro 'dow' not defined`. The roff generator now
+  guards such lines with a leading zero-width `\&`, so every sentence renders.
+  Regression tests added (`tests/test_manpage.py`).
+- **Regenerated the packaged man page** (`man/dow.1`): its header showed a stale
+  `dow 0.1.0` and predated the escaping fix.
+
 ## [2.0.2] - 2026-07-11
 
 ### Changed

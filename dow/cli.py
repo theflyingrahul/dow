@@ -435,8 +435,16 @@ def _dow_version() -> str:
 
 
 def _roff(text: str) -> str:
-    """Escape dynamic text for a roff man page (backslashes and hyphens)."""
-    return text.replace("\\", "\\\\").replace("-", "\\-")
+    """Escape dynamic text for a roff man page.
+
+    Doubles backslashes and escapes hyphens, and protects any line that begins
+    with ``.`` or ``'`` - which roff treats as a control line - with a leading
+    zero-width ``\\&`` so wrapped prose (e.g. a sentence starting with
+    ``'dow commit'``) is not silently swallowed by troff.
+    """
+    text = text.replace("\\", "\\\\").replace("-", "\\-")
+    lines = text.split("\n")
+    return "\n".join("\\&" + ln if ln[:1] in (".", "'") else ln for ln in lines)
 
 
 def _command_usage(cmd, name: str) -> str:
@@ -589,6 +597,26 @@ def _print_banner() -> None:
         report.console.print(f"[bold cyan]{_BANNER}[/bold cyan]")
     except UnicodeEncodeError:
         pass  # decorative only; never let a legacy console break the command
+
+
+def _version_callback(value: bool) -> None:
+    if value:
+        report.console.print(f"dow {_dow_version()}")
+        raise typer.Exit()
+
+
+@app.callback()
+def _main(
+    version: bool = typer.Option(
+        None,
+        "--version",
+        "-V",
+        callback=_version_callback,
+        is_eager=True,
+        help="Show the dow version and exit.",
+    ),
+) -> None:
+    """Drift Observation Workbench - track how your AI's behavior changes across versions."""
 
 
 def main() -> None:
