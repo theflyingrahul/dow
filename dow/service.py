@@ -11,15 +11,22 @@ the two surfaces can never drift apart.
 """
 from __future__ import annotations
 
+import shutil
+import tempfile
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
 
 from .embeddings import get_embedder
 from .evaluators import (
+    CohortContext,
     CompareContext,
+    PlotContext,
     build_eval_context,
     evaluate_version,
+    run_aggregators,
     run_comparators,
+    run_plotters,
 )
 from .metrics import output_difference, semantic_drift, stability
 from .metrics import verdict as compute_verdict
@@ -72,6 +79,10 @@ evaluation:
     - evals.py:mentions_order_id
   # comparators:                    # your own PAIRED metrics over two versions (see evals.py).
   #   - evals.py:label_flip_rate    # agreement/reliability coefficients live here (kappa, alpha, ...)
+  # aggregators:                    # your own N-WAY metrics over a COHORT of versions (see evals.py).
+  #   - evals.py:mean_pairwise_flip # reliability over K raters (ICC, Fleiss/Gwet, Krippendorff, ...)
+  # plots:                          # your own plot functions; dow stores the figures (ships no matplotlib).
+  #   - evals.py:plot_flip
   thresholds:
     drift_warn: 0.15
     drift_fail: 0.40
@@ -119,6 +130,48 @@ def label_flip_rate(cctx):
     if not pairs:
         return 0.0
     return sum(1 for x, y in pairs if x != y) / len(pairs)
+
+
+def mean_pairwise_flip(cctx):
+    """Example N-way AGGREGATOR (not run by default).
+
+    Where a comparator sees two versions, an aggregator sees the whole cohort:
+    cctx.members is one EvalContext per version, aligned per item through their
+    captured payloads. This is where a reliability coefficient over K raters
+    lives (ICC, Fleiss/Gwet, Krippendorff's alpha, ...); dow ships none of
+    them. Here: the mean pairwise label-flip rate across every pair of members.
+    """
+    grids = [(m.payload or {}).get("labels", []) for m in cctx.members]
+    pairs, total = 0, 0.0
+    for i in range(len(grids)):
+        for j in range(i + 1, len(grids)):
+            z = list(zip(grids[i], grids[j]))
+            if z:
+                total += sum(1 for x, y in z if x != y) / len(z)
+                pairs += 1
+    return {"mean_pairwise_flip": total / pairs if pairs else 0.0}
+
+
+def plot_flip(pctx):
+    """Example PLOT function (not run by default): dow ships no plotting library.
+
+    A plot receives a PlotContext with the analysis `results` to render and a
+    dow-provided `out_dir` to write into, and returns the path(s) it wrote; dow
+    stores each as a content-addressed artifact. This stub writes a tiny SVG so
+    the example stays dependency-free - a real project would use matplotlib.
+    """
+    import os
+    val = (pctx.results or {}).get("mean_pairwise_flip", 0.0)
+    if isinstance(val, dict):
+        val = val.get("estimate", 0.0)
+    out = os.path.join(pctx.out_dir, f"{pctx.name or 'figure'}.svg")
+    with open(out, "w", encoding="utf-8") as fh:
+        fh.write(
+            '<svg xmlns="http://www.w3.org/2000/svg" width="200" height="60">'
+            f'<rect width="{max(1, int(val * 200))}" height="30" fill="#0072B2"/>'
+            f'<text x="4" y="50" font-size="12">flip={val:.3f}</text></svg>'
+        )
+    return out
 '''
 
 
@@ -341,6 +394,163 @@ def compare_records(store: Store, name: str, a_id: str, b_id: str) -> dict:
     }
 
 
+# --------------------------------------------------------------------------- #
+# N-way cohort aggregation + pluggable plotting
+# (project code plugs in the coefficients and the plot functions; dow ships
+# neither - it only selects the cohort, wires the callables, and stores results)
+# --------------------------------------------------------------------------- #
+def _now_iso() -> str:
+    return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def select_cohort(store: Store, name: str, versions=None, tag: Optional[str] = None) -> list:
+    """Resolve the set of versions an aggregation runs over.
+
+    Precedence: an explicit ``versions`` list (each resolved like any ref), else
+    every version carrying ``tag``, else the spec's entire version history.
+    """
+    all_ids = [v["id"] for v in store.list_versions(name)]
+    if not all_ids:
+        raise DowError("No versions yet. Run 'dow commit' first.")
+    if versions:
+        return [resolve(store, name, v) for v in versions]
+    if tag:
+        ids = store.versions_with_tag(name, tag)
+        if not ids:
+            raise DowError(
+                f"No versions tagged '{tag}'. Tag members with 'dow tag {tag} <version>'."
+            )
+        return ids
+    return all_ids
+
+
+def _member_label(store: Store, name: str, vid: str) -> str:
+    tags = store.meta(name, vid).get("tags", []) or []
+    return str(tags[0]) if tags else vid
+
+
+def run_aggregations(store: Store, name: str, records: list, member_ids: list, refs: list, base_dir) -> dict:
+    """Run the cohort's configured N-way aggregators over all member versions.
+
+    Aggregators are the project's own callables (reliability coefficients over K
+    raters); dow only wires them in. A failure is captured, not raised, so the op
+    still returns.
+    """
+    if not refs:
+        return {"aggregators": {}, "aggregatorRefs": [], "aggregatorError": None}
+    try:
+        members = [build_eval_context(r) for r in records]
+        labels = [_member_label(store, name, vid) for vid in member_ids]
+        cctx = CohortContext(members=members, ids=list(member_ids), labels=labels, name=name)
+        results = run_aggregators(refs, cctx, base_dir)
+        return {"aggregators": results, "aggregatorRefs": list(refs), "aggregatorError": None}
+    except Exception as exc:  # noqa: BLE001 - an aggregator bug must not break the op
+        return {"aggregators": {}, "aggregatorRefs": list(refs), "aggregatorError": str(exc)}
+
+
+def run_plots(store: Store, refs: list, results: dict, records: list, ids: list, base_dir, kind: str, name: str) -> dict:
+    """Run the project's plot callables and store each produced figure.
+
+    dow ships no plotting library. Each plotter writes figure file(s) into a
+    dow-provided temp dir and returns their path(s); dow copies each into the
+    content-addressed artifact store and returns the references. A failure is
+    captured, not raised.
+    """
+    if not refs:
+        return {"figures": [], "plotRefs": [], "plotError": None}
+    out_dir = tempfile.mkdtemp(prefix="dow-plot-")
+    try:
+        pctx = PlotContext(
+            results=results or {}, out_dir=out_dir, kind=kind, name=name,
+            ids=list(ids), records=records,
+        )
+        produced = run_plotters(refs, pctx, base_dir)
+        figures = [store.store_figure(p) for p in produced if Path(p).exists()]
+        return {"figures": figures, "plotRefs": list(refs), "plotError": None}
+    except Exception as exc:  # noqa: BLE001 - a plot bug must not break the op
+        return {"figures": [], "plotRefs": list(refs), "plotError": str(exc)}
+    finally:
+        shutil.rmtree(out_dir, ignore_errors=True)
+
+
+def _cohort_analysis_refs(records: list, key: str) -> list:
+    """Read the analysis refs (aggregators/plots) from the cohort's config.
+
+    The analysis block is shared across a cohort (members differ only in the
+    perturbed field), so the first member's captured config is authoritative.
+    """
+    if not records:
+        return []
+    return records[0].get("config", {}).get("evaluation", {}).get(key, []) or []
+
+
+def aggregate(root, name: Optional[str] = None, versions=None, tag: Optional[str] = None,
+              plot: bool = False, refs=None, plot_refs=None, save: bool = True) -> dict:
+    """Run N-way aggregators over a cohort of versions and persist the bundle.
+
+    The many-version counterpart of ``compare``: instead of a single
+    baseline-vs-variant pair, it runs the project's reliability coefficients over
+    a whole cohort (K seeds / judges / prompt wordings / permutations) selected by
+    an explicit list, a ``tag``, or the full history. The structured result
+    (aggregator values + any figures + provenance) is saved as a durable,
+    git-tracked bundle, so a robustness check becomes a citable, reproducible
+    object. dow ships none of the coefficients or the plotting library.
+    """
+    root = Path(root)
+    name = need_spec(root, name)
+    store = Store(root)
+    store.ensure()
+    member_ids = select_cohort(store, name, versions, tag)
+    records = [store.get_record(name, vid) for vid in member_ids]
+    if refs is None:
+        refs = _cohort_analysis_refs(records, "aggregators")
+    agg = run_aggregations(store, name, records, member_ids, refs, root)
+
+    figs = {"figures": [], "plotRefs": [], "plotError": None}
+    if plot:
+        if plot_refs is None:
+            plot_refs = _cohort_analysis_refs(records, "plots")
+        figs = run_plots(store, plot_refs, agg["aggregators"], records, member_ids, root, "aggregate", name)
+
+    result = {
+        "spec": name,
+        "members": list(member_ids),
+        "labels": [_member_label(store, name, vid) for vid in member_ids],
+        "fingerprints": {vid: store.meta(name, vid).get("fingerprint") for vid in member_ids},
+        "created": _now_iso(),
+        "aggregators": agg["aggregators"],
+        "aggregatorRefs": agg["aggregatorRefs"],
+        "aggregatorError": agg["aggregatorError"],
+        "figures": figs["figures"],
+        "plotRefs": figs["plotRefs"],
+        "plotError": figs["plotError"],
+    }
+    if save:
+        result["id"] = store.save_aggregation(name, result)
+    return result
+
+
+def aggregations(root, name: Optional[str] = None) -> dict:
+    """List the persisted cohort-aggregation bundles for a spec."""
+    root = Path(root)
+    name = need_spec(root, name)
+    store = Store(root)
+    return {"spec": name, "aggregations": store.list_aggregations(name)}
+
+
+def get_aggregation(root, name: Optional[str] = None, agg_id: Optional[str] = None) -> dict:
+    """Return one persisted cohort-aggregation bundle by id."""
+    root = Path(root)
+    name = need_spec(root, name)
+    store = Store(root)
+    if not agg_id:
+        raise DowError("Provide an aggregation id (e.g. a1). List them with 'dow aggregate --list'.")
+    try:
+        return store.get_aggregation(name, agg_id)
+    except FileNotFoundError as exc:
+        raise DowError(str(exc))
+
+
 def build_tree_data(store: Store, name: str) -> dict:
     """Per-version stability and parent->child drift/verdict edges (the ``dow tree`` core)."""
     versions = store.list_versions(name)
@@ -437,14 +647,15 @@ def commit(root, name: Optional[str] = None, message: Optional[str] = None, from
     return result
 
 
-def compare(root, name: Optional[str] = None, a: Optional[str] = None, b: Optional[str] = None) -> dict:
+def compare(root, name: Optional[str] = None, a: Optional[str] = None, b: Optional[str] = None,
+            plot: bool = False) -> dict:
     """Compare two versions: config diff, output difference, drift, stability, verdict."""
     root = Path(root)
     name = need_spec(root, name)
     store = Store(root)
     a_id, b_id = resolve_pair(store, name, a, b)
     r = compare_records(store, name, a_id, b_id)
-    return {
+    out = {
         "spec": name,
         "a": a_id,
         "b": b_id,
@@ -459,6 +670,14 @@ def compare(root, name: Optional[str] = None, a: Optional[str] = None, b: Option
         "comparatorRefs": r.get("comparator_refs", []),
         "comparatorError": r.get("comparator_error"),
     }
+    if plot:
+        a_rec, b_rec = store.get_record(name, a_id), store.get_record(name, b_id)
+        plot_refs = b_rec.get("config", {}).get("evaluation", {}).get("plots", []) or []
+        figs = run_plots(store, plot_refs, r, [a_rec, b_rec], [a_id, b_id], root, "compare", name)
+        out["figures"] = figs["figures"]
+        out["plotRefs"] = figs["plotRefs"]
+        out["plotError"] = figs["plotError"]
+    return out
 
 
 def explain(root, name: Optional[str] = None, a: Optional[str] = None, b: Optional[str] = None) -> dict:

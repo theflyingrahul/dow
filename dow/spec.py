@@ -43,6 +43,8 @@ class EvaluationSpec:
     samples: int = 3
     metrics: list = field(default_factory=list)
     comparators: list = field(default_factory=list)
+    aggregators: list = field(default_factory=list)
+    plots: list = field(default_factory=list)
     thresholds: dict = field(
         default_factory=lambda: {"drift_warn": 0.15, "drift_fail": 0.40}
     )

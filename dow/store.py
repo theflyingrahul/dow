@@ -22,6 +22,7 @@ from .spec import flatten
 
 STORE_DIR = ".dow"
 ARTIFACTS_DIR = "artifacts"
+AGGREGATIONS_DIR = "aggregations"
 
 
 class Store:
@@ -85,6 +86,31 @@ class Store:
                 record["_payload_integrity"] = "sha256-mismatch"
             record["payload"] = json.loads(blob)
         return record
+
+    def store_figure(self, src_path) -> dict:
+        """Store a produced figure file as a content-addressed artifact.
+
+        Figures are binary and derived, so - like heavy payloads - their bytes
+        live under the git-ignored ``.dow/artifacts/`` (keeping the versioned
+        history light and free of binary churn). The returned reference (sha256 +
+        original filename + on-disk path) is what goes into a persisted result
+        bundle, so the figure stays integrity-checkable and can be regenerated
+        from the recorded results plus the project's plot function.
+        """
+        src = Path(src_path)
+        data = src.read_bytes()
+        sha = hashlib.sha256(data).hexdigest()
+        self.artifacts_dir.mkdir(parents=True, exist_ok=True)
+        art = self.artifacts_dir / f"{sha}{src.suffix}"
+        if not art.exists():
+            art.write_bytes(data)
+        return {
+            "__artifact__": art.name,
+            "sha256": sha,
+            "bytes": len(data),
+            "filename": src.name,
+            "path": str(art.relative_to(self.root)),
+        }
 
     # -- index ------------------------------------------------------------ #
     def _load_index(self) -> dict:
@@ -215,6 +241,20 @@ class Store:
         ]
         return matches[-1] if matches else None
 
+    def versions_with_tag(self, spec_name: str, tag: str) -> list:
+        """All version ids carrying ``tag`` - the cohort selector for aggregation.
+
+        Where :meth:`latest_with_tag` picks one version, an N-way aggregation runs
+        over a whole cohort (e.g. every version tagged ``seed``), so it needs the
+        full, order-preserved list.
+        """
+        t = (tag or "").strip().lower()
+        return [
+            v["id"]
+            for v in self.list_versions(spec_name)
+            if t in [str(x).lower() for x in v.get("tags", [])]
+        ]
+
     # -- evaluation results ---------------------------------------------- #
     def save_eval(self, spec_name: str, version_id: str, eval_result: dict) -> None:
         path = self.dir / "versions" / spec_name / f"{version_id}.json"
@@ -228,6 +268,48 @@ class Store:
                 break
         self._save_index(index)
         self._commit(f"Record evaluation of {spec_name} {version_id}")
+
+    # -- cohort aggregations (durable, git-tracked result bundles) ------- #
+    def save_aggregation(self, spec_name: str, result: dict) -> str:
+        """Persist a cohort-aggregation result bundle and register it in the index.
+
+        The bundle JSON (aggregator results + figure references + provenance) is
+        committed to git under ``.dow/aggregations/<spec>/<id>.json``; any figure
+        *bytes* live in the git-ignored artifact store, referenced by hash. This
+        is dow's git-native equivalent of a project's result bundle (JSON + plot),
+        making a robustness check a durable, citable, reproducible object.
+        """
+        index = self._load_index()
+        entry = index["specs"].setdefault(spec_name, {"counter": 0, "versions": []})
+        entry["agg_counter"] = entry.get("agg_counter", 0) + 1
+        agg_id = f"a{entry['agg_counter']}"
+        result = dict(result)
+        result["id"] = agg_id
+        adir = self.dir / AGGREGATIONS_DIR / spec_name
+        adir.mkdir(parents=True, exist_ok=True)
+        (adir / f"{agg_id}.json").write_text(json.dumps(result, indent=2), encoding="utf-8")
+        entry.setdefault("aggregations", []).append({
+            "id": agg_id,
+            "members": result.get("members", []),
+            "created": result.get("created"),
+            "figures": [f.get("filename") for f in result.get("figures", [])],
+        })
+        self._save_index(index)
+        self._commit(
+            f"Aggregate {spec_name} over {len(result.get('members', []))} versions ({agg_id})"
+        )
+        return agg_id
+
+    def list_aggregations(self, spec_name: str) -> list:
+        if not self.index_path.exists():
+            return []
+        return self._load_index().get("specs", {}).get(spec_name, {}).get("aggregations", [])
+
+    def get_aggregation(self, spec_name: str, agg_id: str) -> dict:
+        path = self.dir / AGGREGATIONS_DIR / spec_name / f"{agg_id}.json"
+        if not path.exists():
+            raise FileNotFoundError(f"Unknown aggregation: {agg_id}")
+        return json.loads(path.read_text(encoding="utf-8"))
 
     def _commit(self, message: str) -> None:
         self.git.add("-A")

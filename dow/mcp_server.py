@@ -156,6 +156,7 @@ def dow_compare(
     a: Optional[str] = None,
     b: Optional[str] = None,
     spec: Optional[str] = None,
+    plot: bool = False,
     project_dir: Optional[str] = None,
 ) -> dict:
     """Compare two versions: config diff, output difference, semantic drift, stability, verdict.
@@ -165,8 +166,10 @@ def dow_compare(
     Consistent, Behavior Drift, or Likely Regression. If the spec lists
     `evaluation.comparators` (the project's own paired metrics), their results are
     returned under `comparators` (each a number or an {estimate, ci_low, ci_high}).
+    With `plot=true` the spec's `evaluation.plots` functions render the comparison
+    and dow stores the figures they produce as content-addressed artifacts.
     """
-    return _run(service.compare, _root(project_dir), name=spec, a=a, b=b)
+    return _run(service.compare, _root(project_dir), name=spec, a=a, b=b, plot=plot)
 
 
 @mcp.tool()
@@ -212,6 +215,37 @@ def dow_eval(
         good_tag=good_tag,
         draft=draft,
     )
+
+
+@mcp.tool()
+def dow_aggregate(
+    versions: Optional[list] = None,
+    tag: Optional[str] = None,
+    plot: bool = False,
+    list_bundles: bool = False,
+    show: Optional[str] = None,
+    spec: Optional[str] = None,
+    project_dir: Optional[str] = None,
+) -> dict:
+    """Aggregate reliability metrics over a COHORT of versions (the N-way sibling of dow_compare).
+
+    Where dow_compare contrasts two versions, this runs the project's own N-way
+    aggregators (listed under `evaluation.aggregators`) over a whole cohort - K
+    seeds, judges, prompt wordings, or permutations - selected by an explicit
+    `versions` list, a `tag`, or (by default) the spec's entire history. Each
+    aggregator sees every member aligned per item through its captured payload,
+    which is what a reliability coefficient over K raters needs (ICC, Fleiss/Gwet,
+    Krippendorff's alpha, ...); dow ships none of them. With `plot=true` the spec's
+    `evaluation.plots` functions render the results and dow stores each figure as a
+    content-addressed artifact. Every run is saved as a durable, git-tracked
+    bundle: set `list_bundles=true` to list them or `show=<id>` to fetch one.
+    """
+    root = _root(project_dir)
+    if list_bundles:
+        return _run(service.aggregations, root, name=spec)
+    if show:
+        return _run(service.get_aggregation, root, name=spec, agg_id=show)
+    return _run(service.aggregate, root, name=spec, versions=versions, tag=tag, plot=plot)
 
 
 # --------------------------------------------------------------------------- #

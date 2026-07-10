@@ -6,7 +6,7 @@ scaffolds a starter spec.
 """
 import sys
 from pathlib import Path
-from typing import Optional
+from typing import List, Optional
 
 import typer
 
@@ -182,6 +182,7 @@ def compare(
     a: Optional[str] = typer.Argument(None, help="First version (default: previous)."),
     b: Optional[str] = typer.Argument(None, help="Second version (default: latest)."),
     spec: Optional[str] = typer.Option(None, "--spec", "-s"),
+    plot: bool = typer.Option(False, "--plot", help="Also run the spec's plot functions and store the figures."),
 ) -> None:
     """Compare two versions: outputs, drift, stability, and a verdict."""
     name = _need_spec(spec)
@@ -193,6 +194,42 @@ def compare(
         r["stability_a"], r["stability_b"], r["verdict"], r["thresholds"],
     )
     report.print_comparators(r.get("comparators", {}), r.get("comparator_refs", []), r.get("comparator_error"))
+    if plot:
+        a_rec, b_rec = store.get_record(name, a_id), store.get_record(name, b_id)
+        plot_refs = b_rec.get("config", {}).get("evaluation", {}).get("plots", []) or []
+        figs = service.run_plots(store, plot_refs, r, [a_rec, b_rec], [a_id, b_id], _root(), "compare", name)
+        report.print_figures(figs)
+
+
+@app.command(**_doc("aggregate"))
+def aggregate(
+    versions: Optional[List[str]] = typer.Argument(
+        None, help="Cohort members to aggregate (default: every version)."),
+    spec: Optional[str] = typer.Option(None, "--spec", "-s"),
+    tag: Optional[str] = typer.Option(
+        None, "--tag", "-t", help="Use every version carrying this tag as the cohort."),
+    plot: bool = typer.Option(False, "--plot", help="Also run the spec's plot functions and store the figures."),
+    list_: bool = typer.Option(False, "--list", help="List stored aggregation bundles instead of running one."),
+    show: Optional[str] = typer.Option(None, "--show", help="Print a stored aggregation bundle by id (e.g. a1)."),
+) -> None:
+    """Aggregate reliability metrics over a cohort of versions (N-way)."""
+    name = _need_spec(spec)
+    if list_:
+        data = service.aggregations(_root(), name)
+        report.print_aggregation_list(name, data["aggregations"])
+        return
+    if show:
+        try:
+            bundle = service.get_aggregation(_root(), name, show)
+        except service.DowError as exc:
+            raise typer.BadParameter(str(exc))
+        report.print_aggregation(bundle)
+        return
+    try:
+        result = service.aggregate(_root(), name=name, versions=versions or None, tag=tag, plot=plot)
+    except service.DowError as exc:
+        raise typer.BadParameter(str(exc))
+    report.print_aggregation(result)
 
 
 @app.command(**_doc("explain"))

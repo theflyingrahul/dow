@@ -89,6 +89,10 @@ reliability coefficients that need both versions aligned per item through their
 captured payload), their results are shown beneath the built\-in signals. dow
 ships none of these coefficients; it only wires in the callables you reference.
 .PP
+With \-\-plot, the spec's evaluation.plots functions render the comparison and dow
+stores the figures they produce as content\-addressed artifacts (dow ships no
+plotting library). To aggregate more than two versions at once, use 'dow aggregate'.
+.PP
 Arguments:
 .RS
 .TP
@@ -104,6 +108,9 @@ Options:
 .TP
 .B \-\-spec, \-s
 (no description)
+.TP
+.B \-\-plot
+Also run the spec's plot functions and store the figures.
 .RE
 .PP
 Examples:
@@ -112,6 +119,66 @@ Examples:
 dow compare
 dow compare v1 v3
 dow compare good last
+dow compare v1 v2 \-\-plot
+.fi
+.RE
+.PP
+.SS aggregate
+.B dow aggregate [OPTIONS] [VERSIONS]
+.PP
+Aggregate reliability metrics over a cohort of versions (N\-way).
+.PP
+Where 'dow compare' contrasts exactly two versions, 'dow aggregate' runs your own
+N\-way aggregators over a whole cohort \- K seeds, judges, prompt wordings, or
+clustering permutations \- selected by an explicit list of versions, a \-\-tag, or
+(by default) the spec's entire history. Each aggregator receives every member
+aligned per item through its captured payload, which is what a reliability
+coefficient over K raters needs (ICC, Fleiss/Gwet, Krippendorff's alpha, ...). dow
+ships none of the coefficients; it only wires in the callables you list under
+evaluation.aggregators.
+.PP
+With \-\-plot, the spec's evaluation.plots functions are run over the aggregated
+results and dow stores each figure they produce as a content\-addressed artifact.
+dow ships no plotting library \- you plug in your own plot functions.
+.PP
+Each run is saved as a durable, git\-tracked result bundle (aggregator values +
+figure references + provenance); list them with \-\-list and print one with
+\-\-show <id>, so a robustness check becomes a citable, reproducible object.
+.PP
+Arguments:
+.RS
+.TP
+.B VERSIONS
+Cohort members to aggregate (default: every version).
+.RE
+.PP
+Options:
+.RS
+.TP
+.B \-\-spec, \-s
+(no description)
+.TP
+.B \-\-tag, \-t
+Use every version carrying this tag as the cohort.
+.TP
+.B \-\-plot
+Also run the spec's plot functions and store the figures.
+.TP
+.B \-\-list
+List stored aggregation bundles instead of running one.
+.TP
+.B \-\-show
+Print a stored aggregation bundle by id (e.g. a1).
+.RE
+.PP
+Examples:
+.RS
+.nf
+dow aggregate
+dow aggregate v1 v2 v3 \-\-plot
+dow aggregate \-\-tag seed
+dow aggregate \-\-list
+dow aggregate \-\-show a1
 .fi
 .RE
 .PP
@@ -261,7 +328,10 @@ last\-good versions, iterate, and run 'dow commit' when you are happy with it.
 .PP
 Evaluators score one version on its own. Their paired counterpart \-
 evaluation.comparators, which score one version against another (agreement or
-reliability coefficients) \- run instead on 'dow compare' and 'dow explain'.
+reliability coefficients) \- run instead on 'dow compare' and 'dow explain'. For
+agreement over a whole cohort of versions at once (K seeds/judges/wordings), use
+evaluation.aggregators with 'dow aggregate'. Plot functions listed under
+evaluation.plots turn any of these results into figures dow stores as artifacts.
 .PP
 Arguments:
 .RS
