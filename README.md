@@ -23,17 +23,23 @@ See [PROJECT_PLAN.md](PROJECT_PLAN.md) for the full design.
 ## Install
 
 ```bash
-python -m venv .venv
-.venv\Scripts\activate            # Windows
-pip install -e .
+pip install dow
 ```
 
 Optional providers:
 
 ```bash
-pip install -e ".[openai]"        # hosted models and embeddings
-pip install -e ".[local]"         # local sentence-transformers embeddings
-pip install -e ".[mcp]"           # Model Context Protocol server (dow-mcp)
+pip install "dow[openai]"         # hosted models and embeddings
+pip install "dow[local]"          # local sentence-transformers embeddings
+pip install "dow[mcp]"            # Model Context Protocol server (dow-mcp)
+```
+
+From a checkout (for development), in a virtual environment:
+
+```bash
+python -m venv .venv
+source .venv/bin/activate          # Windows: .venv\Scripts\activate
+pip install -e ".[dev]"
 ```
 
 ## Use
