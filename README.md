@@ -10,6 +10,14 @@ evaluation configuration), execute it, and measure semantic drift, stability, an
 regressions between versions - with causal attribution. Versioning is automatic
 and Git is a hidden storage backend; you never run git commands.
 
+dow is deliberately slim and **data-structure agnostic**. Its job is to be
+extremely reliable at tracking *what you changed* (prompt, model, sampling,
+params) and *the metrics you care about* - and nothing more. It ships no
+coefficients and no plotting library (you plug those in), it carries any per-item
+data in an opaque `payload` it never interprets, and if your captured output is
+not text you set `embedding_model: none` to skip the built-in lexical drift. How
+your project represents or stores its data never dictates dow's design.
+
 See [PROJECT_PLAN.md](PROJECT_PLAN.md) for the full design.
 
 ## Install
@@ -185,6 +193,26 @@ Run `dow compare --plot` or `dow aggregate --plot`. dow copies each figure into 
 content-addressed artifact store (`.dow/artifacts/`, git-ignored) and records its hash
 and size; for an aggregation the figure is referenced from the persisted bundle, so it
 stays regenerable while the bytes stay out of git.
+
+### Non-text outputs
+
+dow's built-in signals - semantic drift, stability, output difference - assume the
+captured output is text. When a version's behavior is *not* free text (an aligned
+vector of ordinal labels, a cluster assignment, a numeric score), set
+`embedding_model: none`:
+
+```yaml
+evaluation:
+  embedding_model: none    # outputs aren't text; skip dow's built-in lexical drift
+```
+
+dow then tracks the specification change (prompt, model, sampling, params) and runs
+your own metrics, comparators, and aggregators, without inventing a meaningless
+lexical number; `compare`, `history`, `tree`, and `inspect` simply omit the built-in
+drift. The structured per-item data rides in the `payload` a `python` provider
+returns, and dow persists it **whatever its in-memory type** - numpy arrays, sets,
+dataclasses, and numpy scalars all degrade to a faithful JSON-native form. Your
+project never has to pre-convert its data to satisfy dow.
 
 ## MCP server
 

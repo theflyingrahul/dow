@@ -20,6 +20,11 @@ def _fmt(v) -> str:
     return "null" if v is None else str(v)
 
 
+def _f(x, spec: str = "{:.3f}", dash: str = "[dim]n/a[/dim]") -> str:
+    """Format a possibly-``None`` numeric signal (built-in text drift may be off)."""
+    return dash if x is None else spec.format(x)
+
+
 def _short_time(ts) -> str:
     if not ts:
         return ""
@@ -28,9 +33,10 @@ def _short_time(ts) -> str:
 
 def print_run(record: dict, vid: str, note: str = "") -> None:
     rt = record["runtime"]
-    stab = record["metrics"]["stability"]
+    stab = record["metrics"].get("stability")
+    stab_txt = f"   stability {stab:.3f}" if isinstance(stab, (int, float)) else ""
     lines = [
-        f"[bold]Captured {vid}[/bold]   stability {stab:.3f}",
+        f"[bold]Captured {vid}[/bold]{stab_txt}",
         f"model: {rt['provider']}/{rt['model_version']}   samples: {len(record['samples'])}",
         f"fingerprint: {record['spec_fingerprint']}",
     ]
@@ -60,7 +66,7 @@ def print_history(name: str, versions: list, work_fp=None) -> None:
             change = "[yellow]config changed[/yellow]"
         tags = ", ".join(f"[cyan]{t}[/cyan]" for t in v.get("tags", []))
         table.add_row(
-            v["id"], _short_time(v.get("created")), f"{v['stability']:.3f}", change, tags, v.get("message") or ""
+            v["id"], _short_time(v.get("created")), _f(v.get("stability")), change, tags, v.get("message") or ""
         )
         prev_fp = v["fingerprint"]
     console.print(table)
@@ -81,7 +87,7 @@ def print_inspect(record: dict, vid: str, tags=None) -> None:
         f"temperature: {cfg['sampling']['temperature']}  "
         f"top_p: {cfg['sampling']['top_p']}  seed: {cfg['sampling']['seed']}",
         f"embedding: {rt['embedding_model']}  "
-        f"stability: {record['metrics']['stability']:.3f}",
+        f"stability: {_f(record['metrics'].get('stability'))}",
         f"system_fingerprint: {_fmt(rt.get('system_fingerprint'))}",
     ]
     if tags:
@@ -120,17 +126,24 @@ def print_compare(name, a_id, b_id, config_diff, outdiff, drift, stab_a, stab_b,
     table = Table(box=box.SIMPLE, header_style="bold")
     table.add_column("signal")
     table.add_column("value")
-    table.add_row("Output difference", f"{outdiff:.3f}")
-    table.add_row(
-        "Semantic drift",
-        f"{drift:.3f}  (warn {thresholds.get('drift_warn', 0.15)}, "
-        f"fail {thresholds.get('drift_fail', 0.40)})",
-    )
-    table.add_row(f"Stability {a_id}", f"{stab_a:.3f}")
-    table.add_row(f"Stability {b_id}", f"{stab_b:.3f}")
-    console.print(table)
-    color = _VERDICT_COLOR.get(verdict_label, "white")
-    console.print(f"[bold]Verdict:[/bold] [{color}]{verdict_label}[/{color}]")
+    if drift is None and stab_a is None and stab_b is None:
+        console.print(
+            "[dim]Built-in text drift is off for this spec (embedding_model: none); "
+            "see custom metrics below and the configuration diff above.[/dim]"
+        )
+    else:
+        table.add_row("Output difference", _f(outdiff))
+        table.add_row(
+            "Semantic drift",
+            f"{_f(drift)}  (warn {thresholds.get('drift_warn', 0.15)}, "
+            f"fail {thresholds.get('drift_fail', 0.40)})",
+        )
+        table.add_row(f"Stability {a_id}", _f(stab_a))
+        table.add_row(f"Stability {b_id}", _f(stab_b))
+        console.print(table)
+    if verdict_label:
+        color = _VERDICT_COLOR.get(verdict_label, "white")
+        console.print(f"[bold]Verdict:[/bold] [{color}]{verdict_label}[/{color}]")
 
 
 def _fmt_metric_value(v) -> str:
@@ -193,11 +206,17 @@ def print_explain(name, a_id, b_id, config_diff, confounded, verdict_label, drif
         key = next(iter(config_diff))
         a, b = config_diff[key]
         console.print(f"[bold]Cause:[/bold] [cyan]{key}[/cyan] ({_fmt(a)} -> {_fmt(b)})")
-    color = _VERDICT_COLOR.get(verdict_label, "white")
-    console.print(
-        f"[bold]Effect:[/bold] semantic drift {drift:.3f}, stability change "
-        f"{stab_change:+.3f}  ->  [{color}]{verdict_label}[/{color}]"
-    )
+    if drift is None and stab_change is None:
+        console.print(
+            "[bold]Effect:[/bold] [dim]built-in text drift is off "
+            "(embedding_model: none); see custom metrics below.[/dim]"
+        )
+    else:
+        color = _VERDICT_COLOR.get(verdict_label, "white")
+        console.print(
+            f"[bold]Effect:[/bold] semantic drift {_f(drift)}, stability change "
+            f"{_f(stab_change, '{:+.3f}')}  ->  [{color}]{verdict_label}[/{color}]"
+        )
 
 
 def _summarize_change(cfg: dict) -> str:
@@ -212,15 +231,18 @@ def _summarize_change(cfg: dict) -> str:
     return f"{len(cfg)} fields changed"
 
 
-def _node_label(vid: str, stab: float, edge) -> str:
-    base = f"[bold cyan]{vid}[/bold cyan]  stability {stab:.2f}"
+def _node_label(vid: str, stab, edge) -> str:
+    base = f"[bold cyan]{vid}[/bold cyan]  stability {_f(stab, '{:.2f}')}"
     if not edge:
         return base + "  [dim](baseline)[/dim]"
-    arrow = "up" if edge["ds"] > 0 else ("down" if edge["ds"] < 0 else "flat")
+    if edge.get("drift") is None and edge.get("ds") is None:
+        return f"{base}  [dim]{_summarize_change(edge['cfg'])}[/dim]"
+    ds = edge["ds"]
+    arrow = "up" if ds > 0 else ("down" if ds < 0 else "flat")
     color = _VERDICT_COLOR.get(edge["verdict"], "white")
     return (
-        f"{base}  [dim]{_summarize_change(edge['cfg'])}; drift {edge['drift']:.2f}; "
-        f"stab {edge['ds']:+.2f} {arrow}[/dim]  [{color}]{edge['verdict']}[/{color}]"
+        f"{base}  [dim]{_summarize_change(edge['cfg'])}; drift {_f(edge['drift'], '{:.2f}')}; "
+        f"stab {_f(ds, '{:+.2f}')} {arrow}[/dim]  [{color}]{edge['verdict']}[/{color}]"
     )
 
 
@@ -256,10 +278,12 @@ def _branch_name(vid: str) -> str:
 
 def _commit_fields(vid, stab, edge):
     """Build the gitGraph commit label, tag, and type for one version."""
+    s = f"s={stab:.2f}" if isinstance(stab, (int, float)) else "s=n/a"
     if not edge:
-        return _mermaid_safe(f"{vid} (baseline)"), _mermaid_safe(f"s={stab:.2f}"), None
+        return _mermaid_safe(f"{vid} (baseline)"), _mermaid_safe(s), None
     label = _mermaid_safe(f"{vid}: {_summarize_change(edge['cfg'])}")
-    tag = _mermaid_safe(f"d={edge['drift']:.2f} s={stab:.2f}")
+    d = f"d={edge['drift']:.2f} " if isinstance(edge.get("drift"), (int, float)) else ""
+    tag = _mermaid_safe(f"{d}{s}")
     ctype = "HIGHLIGHT" if edge["verdict"] == "Likely Regression" else None
     return label, tag, ctype
 

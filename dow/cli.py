@@ -247,7 +247,7 @@ def explain(
     confounded = len(cfg_diff) > 1
     report.print_explain(
         name, a_id, b_id, cfg_diff, confounded, r["verdict"],
-        r["semantic_drift"], r["stability_b"] - r["stability_a"],
+        r["semantic_drift"], r.get("stability_change"),
     )
     report.print_comparators(r.get("comparators", {}), r.get("comparator_refs", []), r.get("comparator_error"))
 
