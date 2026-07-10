@@ -1,4 +1,4 @@
-.TH DOW 1 "2026-07-10" "dow 0.1.0" "Drift Observation Workbench"
+.TH DOW 1 "2026-07-11" "dow 2.0.3" "Drift Observation Workbench"
 .SH NAME
 dow \- track how your AI's behavior changes across versions
 .SH SYNOPSIS
@@ -18,7 +18,7 @@ Creates specs/<name>.yaml from a starter template and, if it does not exist yet,
 an evals.py with a couple of example evaluators. Pass a name to choose the spec
 (the default is 'summarization'); the spec's name and the file are kept in sync.
 Edit the spec to describe your prompt, model, sampling, and evaluation, then run
-'dow commit' to capture v1. This only writes starter files \- there is no staging
+\&'dow commit' to capture v1. This only writes starter files \- there is no staging
 area, index, or refs, and it refuses to overwrite an existing spec.
 .PP
 Arguments:
@@ -457,4 +457,3 @@ A vLLM OpenAI-compatible server, local or remote. Set VLLM_BASE_URL (default htt
 .PP
 .SH SEE ALSO
 Run \fBdow help\fR or \fBdow help \fICOMMAND\fR for interactive help.
-
