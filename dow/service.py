@@ -15,7 +15,12 @@ from pathlib import Path
 from typing import Optional
 
 from .embeddings import get_embedder
-from .evaluators import evaluate_version
+from .evaluators import (
+    CompareContext,
+    build_eval_context,
+    evaluate_version,
+    run_comparators,
+)
 from .metrics import output_difference, semantic_drift, stability
 from .metrics import verdict as compute_verdict
 from .runner import execute
@@ -30,6 +35,9 @@ EXAMPLE_SPEC = """# specs/summarization.yaml - a fully versioned inference speci
 spec_version: 1
 name: summarization
 task: Summarize a customer support ticket
+
+# operation: ""                     # optional: label a non-generation op (relabel, recluster, subsample, ...)
+# params: {}                        # optional: free-form perturbation params - fingerprinted and diff-attributed
 
 prompt:
   system: You are an assistant that writes concise summaries.
@@ -62,6 +70,8 @@ evaluation:
   metrics:                          # your own evaluators: path.py:function (see evals.py)
     - evals.py:avg_word_count
     - evals.py:mentions_order_id
+  # comparators:                    # your own PAIRED metrics over two versions (see evals.py).
+  #   - evals.py:label_flip_rate    # agreement/reliability coefficients live here (kappa, alpha, ...)
   thresholds:
     drift_warn: 0.15
     drift_fail: 0.40
@@ -91,6 +101,24 @@ def mentions_order_id(ctx):
         return 0.0
     hits = sum(1 for o in ctx.outputs if re.search(r"\b\d{2,}\b", o))
     return hits / len(ctx.outputs)
+
+
+def label_flip_rate(cctx):
+    """Example paired COMPARATOR (not run by default).
+
+    A comparator is the paired counterpart of an evaluator: it receives a
+    CompareContext with BOTH versions (cctx.a, cctx.b) aligned per item through
+    their captured payload - what an agreement/reliability coefficient needs. It
+    may return a plain number or an {"estimate": .., "ci_low": .., "ci_high": ..}
+    band. Reference it under evaluation.comparators. Needs a provider that
+    captures a per-item payload of labels (e.g. the python provider).
+    """
+    a = (cctx.a.payload or {}).get("labels", [])
+    b = (cctx.b.payload or {}).get("labels", [])
+    pairs = list(zip(a, b))
+    if not pairs:
+        return 0.0
+    return sum(1 for x, y in pairs if x != y) / len(pairs)
 '''
 
 
@@ -260,6 +288,30 @@ def config_diff(a_cfg: dict, b_cfg: dict) -> dict:
     return diff
 
 
+def run_comparisons(store: Store, a: dict, b: dict, a_id: str, b_id: str, cfg_diff: dict) -> dict:
+    """Run the variant's configured paired comparators over both versions.
+
+    Comparators are the project's own callables (agreement/reliability
+    coefficients); dow only wires them in. A comparator failure is captured, not
+    raised, so ``compare``/``explain`` still return the built-in signals.
+    """
+    refs = b.get("config", {}).get("evaluation", {}).get("comparators", []) or []
+    if not refs:
+        return {"comparators": {}, "comparatorRefs": [], "comparatorError": None}
+    try:
+        cctx = CompareContext(
+            a=build_eval_context(a),
+            b=build_eval_context(b),
+            config_diff=_diff_json(cfg_diff),
+            a_id=a_id,
+            b_id=b_id,
+        )
+        results = run_comparators(refs, cctx, store.root)
+        return {"comparators": results, "comparatorRefs": list(refs), "comparatorError": None}
+    except Exception as exc:  # noqa: BLE001 - a comparator bug must not break compare
+        return {"comparators": {}, "comparatorRefs": list(refs), "comparatorError": str(exc)}
+
+
 def compare_records(store: Store, name: str, a_id: str, b_id: str) -> dict:
     """Full-precision comparison of two captured versions (the ``dow compare`` core)."""
     a = store.get_record(name, a_id)
@@ -274,6 +326,7 @@ def compare_records(store: Store, name: str, a_id: str, b_id: str) -> dict:
     cfg_diff = config_diff(a["config"], b["config"])
     thresholds = b["config"]["evaluation"]["thresholds"]
     label = compute_verdict(drift, stab_a, stab_b, thresholds)
+    comp = run_comparisons(store, a, b, a_id, b_id, cfg_diff)
     return {
         "config_diff": cfg_diff,
         "output_difference": outdiff,
@@ -282,6 +335,9 @@ def compare_records(store: Store, name: str, a_id: str, b_id: str) -> dict:
         "stability_b": stab_b,
         "verdict": label,
         "thresholds": thresholds,
+        "comparators": comp["comparators"],
+        "comparator_refs": comp["comparatorRefs"],
+        "comparator_error": comp["comparatorError"],
     }
 
 
@@ -353,7 +409,7 @@ def commit(root, name: Optional[str] = None, message: Optional[str] = None, from
     store.ensure()
     prior = store.list_versions(name)
     parent = resolve(store, name, from_version) if from_version else None
-    record = execute(InferenceSpec.load(path))
+    record = execute(InferenceSpec.load(path), base_dir=root)
     note = ""
     if prior and prior[-1]["fingerprint"] == record["spec_fingerprint"]:
         note = f"same configuration as {prior[-1]['id']} - re-running measures non-determinism"
@@ -399,6 +455,9 @@ def compare(root, name: Optional[str] = None, a: Optional[str] = None, b: Option
         "stabilityB": round(r["stability_b"], 4),
         "thresholds": _thresholds_json(r["thresholds"]),
         "verdict": r["verdict"],
+        "comparators": r.get("comparators", {}),
+        "comparatorRefs": r.get("comparator_refs", []),
+        "comparatorError": r.get("comparator_error"),
     }
 
 
@@ -433,6 +492,9 @@ def explain(root, name: Optional[str] = None, a: Optional[str] = None, b: Option
         "stabilityChange": round(r["stability_b"] - r["stability_a"], 4),
         "verdict": r["verdict"],
         "note": note,
+        "comparators": r.get("comparators", {}),
+        "comparatorRefs": r.get("comparator_refs", []),
+        "comparatorError": r.get("comparator_error"),
     }
 
 
@@ -561,7 +623,7 @@ def evaluate(
         path = spec_path(root, name)
         if not path.exists():
             raise DowError(f"Spec not found: {SPECS_DIR}/{name}.yaml")
-        record = execute(InferenceSpec.load(path))
+        record = execute(InferenceSpec.load(path), base_dir=root)
         refs = record["config"]["evaluation"].get("metrics", [])
         if not refs:
             return {

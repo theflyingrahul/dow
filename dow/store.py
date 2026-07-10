@@ -3,9 +3,16 @@
 Git is an internal implementation detail - users never run git commands. Each
 ``run`` snapshots the current spec and its captured behavior as ``v1``, ``v2``,
 and so on, and records it durably in a hidden Git repository under ``.dow``.
+
+Heavy per-item ``payload`` data (e.g. thousands of aligned labels a comparator
+needs) is not stored inline in the version JSON: it is written once, keyed by its
+content hash, under ``.dow/artifacts/`` (which is git-ignored) and referenced from
+the record. This keeps the versioned history light while the record stays
+verifiable and reproducible.
 """
 from __future__ import annotations
 
+import hashlib
 import json
 from pathlib import Path
 from typing import Optional
@@ -14,6 +21,7 @@ from .gitstore import GitError, GitStore
 from .spec import flatten
 
 STORE_DIR = ".dow"
+ARTIFACTS_DIR = "artifacts"
 
 
 class Store:
@@ -21,6 +29,7 @@ class Store:
         self.root = Path(root)
         self.dir = self.root / STORE_DIR
         self.index_path = self.dir / "index.json"
+        self.artifacts_dir = self.dir / ARTIFACTS_DIR
         self.git = GitStore(self.dir)
 
     # -- lifecycle -------------------------------------------------------- #
@@ -30,6 +39,10 @@ class Store:
     def ensure(self) -> None:
         self.dir.mkdir(exist_ok=True)
         (self.dir / "versions").mkdir(exist_ok=True)
+        self.artifacts_dir.mkdir(exist_ok=True)
+        gitignore = self.dir / ".gitignore"
+        if not gitignore.exists():
+            gitignore.write_text(f"{ARTIFACTS_DIR}/\n", encoding="utf-8")
         if not self.index_path.exists():
             self._save_index({"specs": {}})
         if not self.git.is_repo():
@@ -39,6 +52,39 @@ class Store:
                 self.git.commit("dow: initialize behavior store")
             except GitError:
                 pass
+
+    # -- artifact-reference storage for heavy payloads -------------------- #
+    def _externalize(self, record: dict) -> dict:
+        """Return a copy of ``record`` with any heavy ``payload`` swapped for a
+        content-addressed reference; the payload bytes are written to
+        ``.dow/artifacts/<sha256>.json`` (git-ignored) exactly once."""
+        payload = record.get("payload")
+        if payload is None:
+            return record
+        blob = json.dumps(payload, ensure_ascii=False, sort_keys=True).encode("utf-8")
+        sha = hashlib.sha256(blob).hexdigest()
+        self.artifacts_dir.mkdir(parents=True, exist_ok=True)
+        art = self.artifacts_dir / f"{sha}.json"
+        if not art.exists():
+            art.write_text(blob.decode("utf-8"), encoding="utf-8")
+        disk = dict(record)
+        disk["payload"] = {"__artifact__": f"{sha}.json", "sha256": sha, "bytes": len(blob)}
+        return disk
+
+    def _internalize(self, record: dict) -> dict:
+        """Rehydrate an artifact-referenced ``payload`` back into the record."""
+        payload = record.get("payload")
+        if isinstance(payload, dict) and "__artifact__" in payload:
+            art = self.artifacts_dir / payload["__artifact__"]
+            if not art.exists():
+                record["_payload_missing"] = payload
+                record["payload"] = None
+                return record
+            blob = art.read_text(encoding="utf-8")
+            if hashlib.sha256(blob.encode("utf-8")).hexdigest() != payload.get("sha256"):
+                record["_payload_integrity"] = "sha256-mismatch"
+            record["payload"] = json.loads(blob)
+        return record
 
     # -- index ------------------------------------------------------------ #
     def _load_index(self) -> dict:
@@ -105,7 +151,9 @@ class Store:
 
         vdir = self.dir / "versions" / spec_name
         vdir.mkdir(parents=True, exist_ok=True)
-        (vdir / f"{vid}.json").write_text(json.dumps(record, indent=2), encoding="utf-8")
+        (vdir / f"{vid}.json").write_text(
+            json.dumps(self._externalize(record), indent=2), encoding="utf-8"
+        )
 
         entry["versions"].append(
             {
@@ -144,7 +192,7 @@ class Store:
         path = self.dir / "versions" / spec_name / f"{version_id}.json"
         if not path.exists():
             raise FileNotFoundError(f"Unknown version: {version_id}")
-        return json.loads(path.read_text(encoding="utf-8"))
+        return self._internalize(json.loads(path.read_text(encoding="utf-8")))
 
     # -- tags ------------------------------------------------------------- #
     def add_tag(self, spec_name: str, version_id: str, tag: str) -> None:

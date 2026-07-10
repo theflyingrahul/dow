@@ -5,6 +5,12 @@ differ between the versions. If more than one field changed at once, the result
 is flagged as confounded, since no single cause can be isolated. Defaults to the
 previous version versus the latest.
 
+Any evaluation.comparators declared in the spec (your own paired metrics - e.g.
+agreement or reliability coefficients over the two versions' aligned payloads)
+are shown beneath the attribution, so you see how far each coefficient moved -
+with its confidence interval - alongside the single field that caused it. dow
+ships none of these coefficients; it only runs the callables you reference.
+
 @examples
 dow explain
 dow explain v1 v2

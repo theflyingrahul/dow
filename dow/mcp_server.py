@@ -162,7 +162,9 @@ def dow_compare(
 
     Defaults to the last two versions when `a`/`b` are omitted. Accepts version
     names (v1, v2), "last"/"prev", or tags (e.g. "good"). The verdict is one of
-    Consistent, Behavior Drift, or Likely Regression.
+    Consistent, Behavior Drift, or Likely Regression. If the spec lists
+    `evaluation.comparators` (the project's own paired metrics), their results are
+    returned under `comparators` (each a number or an {estimate, ci_low, ci_high}).
     """
     return _run(service.compare, _root(project_dir), name=spec, a=a, b=b)
 
@@ -179,6 +181,8 @@ def dow_explain(
     Reports the changed field(s) and, when exactly one field changed, names it as
     the cause. Flags `confounded=true` when more than one field changed (so the
     effect cannot be pinned on a single cause). Defaults to the last two versions.
+    Any configured `evaluation.comparators` (the project's paired metrics) are
+    returned under `comparators` alongside the attribution.
     """
     return _run(service.explain, _root(project_dir), name=spec, a=a, b=b)
 

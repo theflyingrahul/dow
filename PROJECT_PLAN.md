@@ -82,6 +82,9 @@ spec_version: 1
 name: summarization
 task: Summarize a customer support ticket
 
+# operation: ""                   # optional: label a non-generation op (relabel, recluster, subsample, ...)
+# params: {}                      # optional: free-form perturbation params — fingerprinted and diff-attributed
+
 prompt:
   system: You are an assistant that writes concise summaries.
   template: |
@@ -111,6 +114,8 @@ evaluation:
   metrics:                          # your own evaluators (path.py:function)
     - evals.py:avg_word_count
     - evals.py:mentions_order_id
+  comparators:                      # your own paired baseline-vs-variant metrics (path.py:function)
+    - metrics.py:weighted_kappa
   thresholds:
     drift_warn: 0.15
     drift_fail: 0.40
@@ -122,9 +127,10 @@ inputs:
 Tracked fields, by category:
 - Prompt: the system prompt, the user template, and any few-shot examples.
 - Model identity: the provider, the model name, a pinned model version or snapshot, and, for open-weight models, the model commit or revision hash. Floating aliases are prohibited because they change silently.
+- Operation and params (optional): a label for a non-generation perturbation (relabel, recluster, subsample, ...) and a free-form parameter block; both are fingerprinted and attributed like any other field, so a re-analysis is a versioned single-field change.
 - Sampling and decoding: temperature, top_p, maximum tokens, penalties, stop sequences, and the random seed.
-- Evaluation configuration: the embedding model, the sample count, and the verdict thresholds.
-- Inputs: the test input or inputs.
+- Evaluation configuration: the embedding model, the sample count, the verdict thresholds, the single-version evaluators (`metrics`), and the paired comparators (`comparators`).
+- Inputs: the test input or inputs — a literal string, or an `{artifact: path, sha256: ...}` reference whose on-disk content hash is captured for reproducibility.
 
 ### What is tracked
 
@@ -273,6 +279,30 @@ def avg_word_count(ctx):
 ```
 
 `dow eval` runs the configured evaluators, saves the scores into the version record so they travel with the commit, and reports them against the previous version and the last version tagged as good. Evaluation runs automatically on `dow commit` and is lazy thereafter: saved results are reused unless `--rerun` is passed. Any version can be labelled with `dow tag` (for example `good`, `golden`, `baseline`), and `dow eval --good-tag <label>` selects which label marks the known-good baseline.
+
+### Paired comparators (baseline-vs-variant metrics)
+
+Some metrics are inherently *paired*: they score one version **against another**, aligned item by item — inter-rater agreement and reliability coefficients (weighted Cohen's kappa, Krippendorff's alpha, Gwet AC1/AC2, ICC, PABAK, flip rate) and their bootstrap confidence intervals. A single-version evaluator cannot express these, because it never sees the baseline. Comparators are the paired counterpart of evaluators, and — exactly like evaluators — **dow ships none of the coefficients itself**: the project brings its own callables and plugs them in under `evaluation.comparators`:
+
+```yaml
+evaluation:
+  comparators:
+    - metrics.py:weighted_kappa       # local file : function
+    - my_pkg.agreement:krippendorff   # importable module : function
+```
+
+A comparator receives a `CompareContext` with both captured versions (`a` = baseline, `b` = variant), each exposing its per-item `payload` (below) plus the flattened config diff. It returns either a plain number, a `{estimate, ci_low, ci_high}` band, or a bag of named metrics; dow stores the value verbatim without interpreting it.
+
+```python
+# metrics.py
+def flip_rate(cctx):
+    a, b = cctx.a.payload["labels"], cctx.b.payload["labels"]
+    return sum(x != y for x, y in zip(a, b)) / len(a)
+```
+
+Comparators are computed on demand by `dow compare` and `dow explain` (not persisted into the commit), so the same attribution that pins a behavioral change to a single configuration field also reports how far the paired coefficient moved, with its confidence interval. A comparator failure is captured and reported, never fatal.
+
+Structured, per-item data is carried by an optional **`payload`**: whatever a `python` provider returns alongside its text output (for example an aligned vector of ordinal labels) is exposed to evaluators as `ctx.payload` and to comparators as `cctx.a.payload` / `cctx.b.payload`. Because such data can be large and would bloat the version history, dow does not inline it in the version JSON: it is written once, keyed by its content hash, under `.dow/artifacts/` (git-ignored) and referenced from the record. It is rehydrated transparently on read and verified against its hash, so the git-tracked history stays light while every record remains reproducible. A non-generation perturbation can additionally be labelled with a fingerprinted `operation` and free-form `params` block (see Section 4), so a re-analysis (relabel, recluster, subsample) is versioned and attributed like any other single-field change.
 
 ---
 

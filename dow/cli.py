@@ -80,19 +80,6 @@ def _resolve_pair(store: Store, name: str, a: Optional[str], b: Optional[str]):
         raise typer.BadParameter(str(exc))
 
 
-def _compare(store: Store, name: str, a_id: str, b_id: str):
-    r = service.compare_records(store, name, a_id, b_id)
-    return (
-        r["config_diff"],
-        r["output_difference"],
-        r["semantic_drift"],
-        r["stability_a"],
-        r["stability_b"],
-        r["verdict"],
-        r["thresholds"],
-    )
-
-
 def _ensure_eval(store: Store, name: str, vid: str, rerun: bool = False):
     """Return the version's eval result, running and saving it if not present."""
     return service.ensure_eval(store, name, vid, _root(), rerun=rerun)
@@ -179,7 +166,7 @@ def commit(
     store.ensure()
     prior = store.list_versions(name)
     parent = _resolve(store, name, from_) if from_ else None
-    record = execute(InferenceSpec.load(path))
+    record = execute(InferenceSpec.load(path), base_dir=_root())
     note = ""
     if prior and prior[-1]["fingerprint"] == record["spec_fingerprint"]:
         note = f"same configuration as {prior[-1]['id']} - re-running measures non-determinism"
@@ -200,8 +187,12 @@ def compare(
     name = _need_spec(spec)
     store = Store(_root())
     a_id, b_id = _resolve_pair(store, name, a, b)
-    cfg_diff, outdiff, drift, stab_a, stab_b, label, thr = _compare(store, name, a_id, b_id)
-    report.print_compare(name, a_id, b_id, cfg_diff, outdiff, drift, stab_a, stab_b, label, thr)
+    r = service.compare_records(store, name, a_id, b_id)
+    report.print_compare(
+        name, a_id, b_id, r["config_diff"], r["output_difference"], r["semantic_drift"],
+        r["stability_a"], r["stability_b"], r["verdict"], r["thresholds"],
+    )
+    report.print_comparators(r.get("comparators", {}), r.get("comparator_refs", []), r.get("comparator_error"))
 
 
 @app.command(**_doc("explain"))
@@ -214,9 +205,14 @@ def explain(
     name = _need_spec(spec)
     store = Store(_root())
     a_id, b_id = _resolve_pair(store, name, a, b)
-    cfg_diff, _, drift, stab_a, stab_b, label, _ = _compare(store, name, a_id, b_id)
+    r = service.compare_records(store, name, a_id, b_id)
+    cfg_diff = r["config_diff"]
     confounded = len(cfg_diff) > 1
-    report.print_explain(name, a_id, b_id, cfg_diff, confounded, label, drift, stab_b - stab_a)
+    report.print_explain(
+        name, a_id, b_id, cfg_diff, confounded, r["verdict"],
+        r["semantic_drift"], r["stability_b"] - r["stability_a"],
+    )
+    report.print_comparators(r.get("comparators", {}), r.get("comparator_refs", []), r.get("comparator_error"))
 
 
 @app.command(**_doc("history"))
@@ -279,7 +275,7 @@ def evaluate(
         path = _spec_path(name)
         if not path.exists():
             raise typer.BadParameter(f"Spec not found: {path}")
-        record = execute(InferenceSpec.load(path))
+        record = execute(InferenceSpec.load(path), base_dir=_root())
         refs = record["config"]["evaluation"].get("metrics", [])
         if not refs:
             report.console.print(

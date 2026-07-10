@@ -42,6 +42,7 @@ class EvaluationSpec:
     embedding_model: str = "hashing-256"
     samples: int = 3
     metrics: list = field(default_factory=list)
+    comparators: list = field(default_factory=list)
     thresholds: dict = field(
         default_factory=lambda: {"drift_warn": 0.15, "drift_fail": 0.40}
     )
@@ -58,6 +59,8 @@ class InferenceSpec:
     name: str = "spec"
     task: str = ""
     spec_version: int = 1
+    operation: str = ""
+    params: dict = field(default_factory=dict)
     prompt: PromptSpec = field(default_factory=PromptSpec)
     model: ModelSpec = field(default_factory=ModelSpec)
     sampling: SamplingSpec = field(default_factory=SamplingSpec)
@@ -76,6 +79,8 @@ class InferenceSpec:
             name=data.get("name", "spec"),
             task=data.get("task", ""),
             spec_version=data.get("spec_version", 1),
+            operation=data.get("operation", ""),
+            params=dict(data.get("params") or {}),
             prompt=_build(PromptSpec, data.get("prompt")),
             model=_build(ModelSpec, data.get("model")),
             sampling=_build(SamplingSpec, data.get("sampling")),
@@ -88,6 +93,8 @@ class InferenceSpec:
             "spec_version": self.spec_version,
             "name": self.name,
             "task": self.task,
+            "operation": self.operation,
+            "params": dict(self.params),
             "prompt": asdict(self.prompt),
             "model": asdict(self.model),
             "sampling": asdict(self.sampling),

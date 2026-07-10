@@ -9,6 +9,10 @@ Use --draft to evaluate your current working spec without committing a version:
 edit the spec, run 'dow eval --draft' to see the scores against the previous and
 last-good versions, iterate, and run 'dow commit' when you are happy with it.
 
+Evaluators score one version on its own. Their paired counterpart -
+evaluation.comparators, which score one version against another (agreement or
+reliability coefficients) - run instead on 'dow compare' and 'dow explain'.
+
 @examples
 dow eval
 dow eval --draft
