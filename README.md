@@ -244,11 +244,25 @@ should operate on:
 
 Each tool resolves its project directory from the `project_dir` argument, else
 the `DOW_PROJECT_DIR` environment variable, else the server's current directory.
-The 13 tools mirror the CLI: `dow_list_specs`, `dow_init`, `dow_read_spec`,
+The 14 tools mirror the CLI: `dow_list_specs`, `dow_init`, `dow_read_spec`,
 `dow_write_spec`, `dow_commit`, `dow_compare`, `dow_explain`, `dow_eval`,
-`dow_history`, `dow_inspect`, `dow_tag`, `dow_tree`, and `dow_docs`. They return
-structured JSON (drift scores, verdicts, config diffs, metrics, the version
-tree, and Mermaid), so a client can run the full edit -> commit -> compare loop.
+`dow_aggregate`, `dow_history`, `dow_inspect`, `dow_tag`, `dow_tree`, and
+`dow_docs`. They return structured JSON (config diffs, metrics, comparator and
+aggregator results, the version tree, and Mermaid - plus, for text outputs, drift
+scores and verdicts), so a client can run the full edit -> commit -> compare loop.
+
+Because dow is data-structure agnostic, the analysis tools tell the client when
+the built-in text signals do not apply: with `embedding_model: none`,
+`dow_compare`/`dow_explain` return `driftEnabled: false` and null
+`semanticDrift`/`verdict`, so the client leans on the configuration diff and the
+project's own comparators/aggregators instead.
+
+Alongside the tools, the server exposes read-only **resources** an MCP client can
+attach as context: `dow://overview` (this workbench's guide and design),
+`dow://docs/<command>` (a command's full help), `dow://specs` (the project's spec
+index), and `dow://spec/<name>` (a spec's raw YAML). Resources are not per-call,
+so they resolve the project from `DOW_PROJECT_DIR` or the working directory (they
+take no `project_dir`).
 
 ## Documentation and the manual page
 

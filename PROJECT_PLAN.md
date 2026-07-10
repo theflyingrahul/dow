@@ -408,6 +408,10 @@ gitGraph TB:
 
 The trunk `v1 -> v2` is the main line; `v3-branch` forks from v1 and continues to v4, and `v5-branch` is a sub-branch off v3. Raising the temperature (v2) regressed stability and is highlighted; under the offline mock embedder the other edits register no drift, whereas a real model and embedding model would surface drift on each.
 
+### Programmatic and MCP surface
+
+The command line is one front end over a headless core (`dow/service.py`); an AI agent gets the same workflow over the Model Context Protocol. The `dow-mcp` server (install with the `mcp` extra) exposes fourteen tools mirroring the commands above - scaffold, read/write a spec, commit, compare, explain, eval, aggregate, tag, history, inspect, tree, and docs - plus read-only resources (`dow://overview`, `dow://docs/<command>`, `dow://specs`, `dow://spec/<name>`) an agent can attach as context. Because both surfaces call the same core, they never drift apart, and both are data-structure agnostic: when a spec sets `embedding_model: none`, the built-in drift, stability, and verdict come back null (`driftEnabled` is false) and the configuration diff plus the project's own metrics carry the analysis. dow itself still ships no metric, statistic, or plotting code.
+
 ---
 
 ## 8. Establishing Causality
