@@ -72,7 +72,7 @@ sampling:
   seed: 7
 
 evaluation:
-  embedding_model: hashing-256      # offline default; swap for a sentence-transformers id
+  embedding_model: hashing-256      # text default; a sentence-transformers id; or 'none' if outputs aren't text
   samples: 5
   metrics:                          # your own evaluators: path.py:function (see evals.py)
     - evals.py:avg_word_count
@@ -331,6 +331,12 @@ def resolve_pair(store: Store, name: str, a: Optional[str], b: Optional[str]):
     return resolve(store, name, a), resolve(store, name, b)
 
 
+def _round(x, n: int = 4):
+    """Round a real number; pass ``None`` through - the built-in text-drift
+    signals are absent when a spec opts out with ``embedding_model: none``."""
+    return round(x, n) if isinstance(x, (int, float)) and not isinstance(x, bool) else None
+
+
 def config_diff(a_cfg: dict, b_cfg: dict) -> dict:
     """Flattened field-by-field difference: ``{dotted_key: (old, new)}``."""
     fa, fb = flatten(a_cfg), flatten(b_cfg)
@@ -372,13 +378,17 @@ def compare_records(store: Store, name: str, a_id: str, b_id: str) -> dict:
     a_out = [s["output"] for s in a["samples"]]
     b_out = [s["output"] for s in b["samples"]]
     embedder = get_embedder(b["config"]["evaluation"]["embedding_model"])
-    a_emb, b_emb = embedder.embed(a_out), embedder.embed(b_out)
-    drift = semantic_drift(a_emb, b_emb)
-    stab_a, stab_b = stability(a_emb), stability(b_emb)
-    outdiff = output_difference(a_out, b_out)
     cfg_diff = config_diff(a["config"], b["config"])
     thresholds = b["config"]["evaluation"]["thresholds"]
-    label = compute_verdict(drift, stab_a, stab_b, thresholds)
+    if getattr(embedder, "enabled", True):
+        a_emb, b_emb = embedder.embed(a_out), embedder.embed(b_out)
+        drift = semantic_drift(a_emb, b_emb)
+        stab_a, stab_b = stability(a_emb), stability(b_emb)
+        outdiff = output_difference(a_out, b_out)
+        label = compute_verdict(drift, stab_a, stab_b, thresholds)
+        stab_change = stab_b - stab_a
+    else:
+        drift = stab_a = stab_b = outdiff = label = stab_change = None
     comp = run_comparisons(store, a, b, a_id, b_id, cfg_diff)
     return {
         "config_diff": cfg_diff,
@@ -386,7 +396,10 @@ def compare_records(store: Store, name: str, a_id: str, b_id: str) -> dict:
         "semantic_drift": drift,
         "stability_a": stab_a,
         "stability_b": stab_b,
+        "stability_change": stab_change,
         "verdict": label,
+        "drift_enabled": bool(getattr(embedder, "enabled", True)),
+        "embedding_model": embedder.name,
         "thresholds": thresholds,
         "comparators": comp["comparators"],
         "comparator_refs": comp["comparatorRefs"],
@@ -559,24 +572,32 @@ def build_tree_data(store: Store, name: str) -> dict:
     records = {v["id"]: store.get_record(name, v["id"]) for v in versions}
     last_id = versions[-1]["id"]
     embedder = get_embedder(records[last_id]["config"]["evaluation"]["embedding_model"])
+    enabled = bool(getattr(embedder, "enabled", True))
     emb, stab = {}, {}
     for v in versions:
         outs = [s["output"] for s in records[v["id"]]["samples"]]
-        e = embedder.embed(outs)
-        emb[v["id"]] = e
-        stab[v["id"]] = stability(e)
+        if enabled:
+            e = embedder.embed(outs)
+            emb[v["id"]] = e
+            stab[v["id"]] = stability(e)
+        else:
+            stab[v["id"]] = None
     order = [v["id"] for v in versions]
     parent_of, edges = {}, {}
     for i, v in enumerate(versions):
         vid = v["id"]
         p = v["parent"] if "parent" in v else (order[i - 1] if i > 0 else None)
         parent_of[vid] = p
-        if p and p in emb:
-            drift = semantic_drift(emb[p], emb[vid])
+        if p and (p in emb or not enabled):
             cfg = config_diff(records[p]["config"], records[vid]["config"])
-            thresholds = records[vid]["config"]["evaluation"]["thresholds"]
-            label = compute_verdict(drift, stab[p], stab[vid], thresholds)
-            edges[vid] = {"drift": drift, "ds": stab[vid] - stab[p], "cfg": cfg, "verdict": label}
+            if enabled:
+                drift = semantic_drift(emb[p], emb[vid])
+                thresholds = records[vid]["config"]["evaluation"]["thresholds"]
+                label = compute_verdict(drift, stab[p], stab[vid], thresholds)
+                ds = stab[vid] - stab[p]
+            else:
+                drift = label = ds = None
+            edges[vid] = {"drift": drift, "ds": ds, "cfg": cfg, "verdict": label}
     return {"versions": versions, "stab": stab, "parent_of": parent_of, "edges": edges}
 
 
@@ -629,7 +650,7 @@ def commit(root, name: Optional[str] = None, message: Optional[str] = None, from
         "spec": name,
         "version": vid,
         "parent": parent,
-        "stability": record["metrics"]["stability"],
+        "stability": record["metrics"].get("stability"),
         "provider": runtime.get("provider"),
         "model": f"{runtime.get('provider')}/{runtime.get('model_version')}",
         "samples": len(record["samples"]),
@@ -660,10 +681,12 @@ def compare(root, name: Optional[str] = None, a: Optional[str] = None, b: Option
         "a": a_id,
         "b": b_id,
         "configDiff": _diff_json(r["config_diff"]),
-        "outputDifference": round(r["output_difference"], 4),
-        "semanticDrift": round(r["semantic_drift"], 4),
-        "stabilityA": round(r["stability_a"], 4),
-        "stabilityB": round(r["stability_b"], 4),
+        "outputDifference": _round(r["output_difference"]),
+        "semanticDrift": _round(r["semantic_drift"]),
+        "stabilityA": _round(r["stability_a"]),
+        "stabilityB": _round(r["stability_b"]),
+        "driftEnabled": r.get("drift_enabled", True),
+        "embeddingModel": r.get("embedding_model"),
         "thresholds": _thresholds_json(r["thresholds"]),
         "verdict": r["verdict"],
         "comparators": r.get("comparators", {}),
@@ -707,8 +730,9 @@ def explain(root, name: Optional[str] = None, a: Optional[str] = None, b: Option
         "changed": _diff_json(cfg),
         "confounded": confounded,
         "cause": cause,
-        "semanticDrift": round(r["semantic_drift"], 4),
-        "stabilityChange": round(r["stability_b"] - r["stability_a"], 4),
+        "semanticDrift": _round(r["semantic_drift"]),
+        "stabilityChange": _round(r.get("stability_change")),
+        "driftEnabled": r.get("drift_enabled", True),
         "verdict": r["verdict"],
         "note": note,
         "comparators": r.get("comparators", {}),
@@ -772,7 +796,7 @@ def inspect(root, name: Optional[str] = None, version: Optional[str] = None) -> 
         "input": rec.get("input", ""),
         "config": rec.get("config", {}),
         "runtime": rec.get("runtime", {}),
-        "stability": rec["metrics"]["stability"],
+        "stability": rec["metrics"].get("stability"),
         "outputs": [
             {
                 "index": i,
@@ -903,14 +927,14 @@ def tree(root, name: Optional[str] = None, mermaid: bool = False) -> dict:
         node = {
             "id": vid,
             "parent": parent_of.get(vid),
-            "stability": round(stab.get(vid, 0.0), 4),
+            "stability": _round(stab.get(vid)),
             "tags": list(by_id[vid].get("tags", []) or []),
             "baseline": edge is None,
         }
         if edge:
             node["edge"] = {
-                "semanticDrift": round(edge["drift"], 4),
-                "stabilityChange": round(edge["ds"], 4),
+                "semanticDrift": _round(edge["drift"]),
+                "stabilityChange": _round(edge["ds"]),
                 "changed": _diff_json(edge["cfg"]),
                 "verdict": edge["verdict"],
             }

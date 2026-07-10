@@ -8,6 +8,33 @@ import numpy as np
 
 _WORD = re.compile(r"[a-z0-9]+")
 
+_EMBEDDING_OFF = {"", "none", "off", "null", "false", "no", "0"}
+
+
+def embedding_disabled(name) -> bool:
+    """True when a spec opts out of dow's built-in text-embedding signals.
+
+    dow's built-in behavioral signals - semantic drift, stability, output
+    difference - assume the captured output is *text*. A project whose behavior
+    is not free text (e.g. an aligned vector of ordinal labels carried in the
+    payload) sets ``embedding_model: none`` so dow tracks the spec change and the
+    project's own plugged-in metrics without computing a meaningless lexical
+    number. This keeps dow agnostic to how the project represents its data.
+    """
+    return str(name).strip().lower() in _EMBEDDING_OFF
+
+
+class NullEmbedder:
+    """Sentinel for ``embedding_model: none`` - dow computes no text signal."""
+
+    name = "none"
+    enabled = False
+
+    def embed(self, texts):
+        import numpy as np
+
+        return np.zeros((len(list(texts)), 0), dtype=np.float64)
+
 
 class HashingEmbedder:
     """Offline bag-of-words hashing embedder. No model download required.
@@ -60,6 +87,8 @@ class OpenAIEmbedder:
 
 
 def get_embedder(name: str):
+    if embedding_disabled(name):
+        return NullEmbedder()
     n = (name or "hashing-256").lower()
     if n.startswith("hashing"):
         dim = 256

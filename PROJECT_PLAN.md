@@ -53,6 +53,8 @@ Pipeline: versioned specification, then runner, then language model, then output
 
 The unit of versioning is the inference specification. A version of AI behavior is an automatically captured snapshot - the specification together with its run record - stored durably in the Git-backed behavior store and referred to by a simple name such as v1 or v2. Users never run Git commands.
 
+**Design principle - data-structure agnostic.** dow versions the *specification* and records the *metrics*, and it is deliberately incurious about everything else. It ships no coefficients and no plotting library (the project plugs those in under `evaluation.comparators` / `aggregators` / `plots`); it treats each version's per-item `payload` as an opaque blob it persists but never interprets, and it persists that blob no matter how the project represents it in memory (numpy arrays, sets, dataclasses, and other exotic values degrade to a faithful JSON-native form rather than breaking the capture); and it makes its own built-in text signals optional (`embedding_model: none`) for behavior that is not free text. How the calling project represents, stores, or shapes its data therefore never constrains dow's design. dow's job is to be extremely reliable at tracking what changed - prompt, model, sampling, params - and the metrics the project cares about, and nothing more.
+
 ---
 
 ## 3. Technology Stack
@@ -109,7 +111,7 @@ sampling:
   seed: 7                           # pinned for reproducibility
 
 evaluation:
-  embedding_model: hashing-256      # offline default; swap for a sentence-transformers id
+  embedding_model: hashing-256      # text default; a sentence-transformers id; or 'none' if outputs aren't text
   samples: 5                        # N samples per version, used for stability
   metrics:                          # your own evaluators (path.py:function)
     - evals.py:avg_word_count
@@ -263,6 +265,8 @@ Outputs are embedded as vectors and compared with cosine similarity, cos(a, b) =
   - drift below 0.15: Consistent
   - drift from 0.15 up to 0.40: Behavior Drift
   - drift of 0.40 or above, or a substantial decrease in stability: Likely Regression
+
+These built-in signals assume the output is text and are computed with an embedding model. A project whose captured behavior is not free text sets `embedding_model: none`; dow then omits output difference, semantic drift, stability, and the verdict, and reports the configuration difference together with the project's own pluggable metrics (below) instead. dow never requires its built-ins to be meaningful for the project's data - they are a convenience default for text outputs, not an assumption baked into the design.
 
 ### Custom evaluators (pluggable metrics)
 

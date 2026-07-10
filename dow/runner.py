@@ -89,8 +89,10 @@ def execute(spec, base_dir=None) -> dict:
             "embedding_model": embedder.name,
         }
 
-    embs = embedder.embed(outputs)
-    stab = stability(embs)
+    metrics: dict = {}
+    if getattr(embedder, "enabled", True):
+        embs = embedder.embed(outputs)
+        metrics["stability"] = round(stability(embs), 4)
 
     present = [p for p in payloads if p is not None]
     if not present:
@@ -113,7 +115,7 @@ def execute(spec, base_dir=None) -> dict:
             "library_versions": library_versions(),
         },
         "samples": samples,
-        "metrics": {"stability": round(stab, 4)},
+        "metrics": metrics,
     }
     if payload is not None:
         record["payload"] = payload

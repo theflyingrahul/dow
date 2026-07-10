@@ -10,6 +10,10 @@ reliability coefficients that need both versions aligned per item through their
 captured payload), their results are shown beneath the built-in signals. dow
 ships none of these coefficients; it only wires in the callables you reference.
 
+If the spec sets evaluation.embedding_model to 'none' (outputs are not text), the
+built-in output-difference, drift, stability, and verdict are omitted; the
+configuration difference and your own comparators carry the comparison instead.
+
 With --plot, the spec's evaluation.plots functions render the comparison and dow
 stores the figures they produce as content-addressed artifacts (dow ships no
 plotting library). To aggregate more than two versions at once, use 'dow aggregate'.

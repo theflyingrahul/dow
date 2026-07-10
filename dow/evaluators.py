@@ -215,6 +215,12 @@ def _clean_value(v):
         return {str(k): _clean_value(x) for k, x in v.items()}
     if isinstance(v, (list, tuple)):
         return [_clean_value(x) for x in v]
+    tolist = getattr(v, "tolist", None)  # numpy array/scalar -> native; dow stays agnostic
+    if callable(tolist):
+        try:
+            return _clean_value(tolist())
+        except Exception:
+            pass
     return v
 
 

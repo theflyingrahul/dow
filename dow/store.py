@@ -12,6 +12,7 @@ verifiable and reproducible.
 """
 from __future__ import annotations
 
+import dataclasses
 import hashlib
 import json
 from pathlib import Path
@@ -23,6 +24,32 @@ from .spec import flatten
 STORE_DIR = ".dow"
 ARTIFACTS_DIR = "artifacts"
 AGGREGATIONS_DIR = "aggregations"
+
+
+def _json_default(obj):
+    """Best-effort JSON coercion so dow can persist a project's payload no matter
+    how it is represented in memory - dow stays agnostic to the project's data
+    structures. numpy scalars/arrays, sets, bytes, dataclasses, and Paths degrade
+    to a JSON-native form (finally ``str``) instead of breaking the capture. The
+    project owns round-trip fidelity; dow only guarantees it will never refuse to
+    store what an evaluator or provider returned.
+    """
+    if isinstance(obj, (set, frozenset)):
+        return list(obj)
+    if isinstance(obj, (bytes, bytearray)):
+        return obj.decode("utf-8", "replace")
+    if dataclasses.is_dataclass(obj) and not isinstance(obj, type):
+        return dataclasses.asdict(obj)
+    for attr in ("tolist", "item"):  # numpy array -> list, numpy scalar -> py scalar
+        fn = getattr(obj, attr, None)
+        if callable(fn):
+            try:
+                return fn()
+            except Exception:
+                pass
+    if isinstance(obj, Path):
+        return str(obj)
+    return str(obj)
 
 
 class Store:
@@ -62,7 +89,9 @@ class Store:
         payload = record.get("payload")
         if payload is None:
             return record
-        blob = json.dumps(payload, ensure_ascii=False, sort_keys=True).encode("utf-8")
+        blob = json.dumps(
+            payload, ensure_ascii=False, sort_keys=True, default=_json_default
+        ).encode("utf-8")
         sha = hashlib.sha256(blob).hexdigest()
         self.artifacts_dir.mkdir(parents=True, exist_ok=True)
         art = self.artifacts_dir / f"{sha}.json"
@@ -178,7 +207,8 @@ class Store:
         vdir = self.dir / "versions" / spec_name
         vdir.mkdir(parents=True, exist_ok=True)
         (vdir / f"{vid}.json").write_text(
-            json.dumps(self._externalize(record), indent=2), encoding="utf-8"
+            json.dumps(self._externalize(record), indent=2, default=_json_default),
+            encoding="utf-8",
         )
 
         entry["versions"].append(
@@ -186,7 +216,7 @@ class Store:
                 "id": vid,
                 "parent": parent,
                 "created": record.get("run_id"),
-                "stability": record["metrics"]["stability"],
+                "stability": record["metrics"].get("stability"),
                 "fingerprint": record.get("spec_fingerprint"),
                 "message": message,
             }
@@ -198,7 +228,7 @@ class Store:
         body = [
             f"Version: {vid}" + (f" (branched from {parent})" if parent else " (root)"),
             f"Spec: {spec_name} @ {record.get('spec_fingerprint', 'n/a')}",
-            f"Stability: {record['metrics']['stability']}",
+            f"Stability: {record['metrics'].get('stability')}",
         ]
         if changes:
             body.append("")
@@ -260,7 +290,9 @@ class Store:
         path = self.dir / "versions" / spec_name / f"{version_id}.json"
         record = json.loads(path.read_text(encoding="utf-8"))
         record["eval"] = eval_result
-        path.write_text(json.dumps(record, indent=2), encoding="utf-8")
+        path.write_text(
+            json.dumps(record, indent=2, default=_json_default), encoding="utf-8"
+        )
         index = self._load_index()
         for v in index["specs"].get(spec_name, {}).get("versions", []):
             if v["id"] == version_id:
@@ -287,7 +319,9 @@ class Store:
         result["id"] = agg_id
         adir = self.dir / AGGREGATIONS_DIR / spec_name
         adir.mkdir(parents=True, exist_ok=True)
-        (adir / f"{agg_id}.json").write_text(json.dumps(result, indent=2), encoding="utf-8")
+        (adir / f"{agg_id}.json").write_text(
+            json.dumps(result, indent=2, default=_json_default), encoding="utf-8"
+        )
         entry.setdefault("aggregations", []).append({
             "id": agg_id,
             "members": result.get("members", []),
