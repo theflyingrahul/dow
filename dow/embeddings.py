@@ -51,7 +51,7 @@ class HashingEmbedder:
         vecs = np.zeros((len(texts), self.dim), dtype=np.float64)
         for i, t in enumerate(texts):
             for tok in _WORD.findall((t or "").lower()):
-                h = int(hashlib.md5(tok.encode("utf-8")).hexdigest(), 16)
+                h = int(hashlib.md5(tok.encode("utf-8"), usedforsecurity=False).hexdigest(), 16)
                 vecs[i, h % self.dim] += 1.0
             norm = np.linalg.norm(vecs[i])
             if norm > 0:

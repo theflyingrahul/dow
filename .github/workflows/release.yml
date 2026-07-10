@@ -1,0 +1,81 @@
+name: Release
+
+# Publishes on an annotated tag like `v2.0.0`:
+#   1. build sdist + wheel and verify the tag matches the packaged version;
+#   2. create a GitHub Release with the built distributions attached;
+#   3. publish to PyPI via Trusted Publishing (OIDC).
+#
+# PyPI publishing requires a one-time setup on PyPI (no secret is stored here):
+# add a Trusted Publisher for project `dow` pointing at this repo, workflow
+# `release.yml`, environment `pypi`. Alternatively, add a `PYPI_API_TOKEN`
+# repository secret and give the publish step `password: ${{ secrets.PYPI_API_TOKEN }}`.
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Build distributions
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Build sdist + wheel
+        run: |
+          python -m pip install --upgrade pip build twine
+          python -m build
+      - name: Verify tag matches packaged version
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: |
+          PKG=$(python -c "import dow; print(dow.__version__)")
+          TAG="${GITHUB_REF_NAME#v}"
+          echo "packaged=$PKG tag=$TAG"
+          test "$PKG" = "$TAG"
+      - name: twine check
+        run: twine check dist/*
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist
+          path: dist/
+
+  github-release:
+    name: GitHub Release
+    needs: build
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/v')
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/*
+          generate_release_notes: true
+
+  pypi:
+    name: Publish to PyPI
+    needs: build
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/v')
+    environment:
+      name: pypi
+      url: https://pypi.org/p/dow
+    permissions:
+      id-token: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist
+      - name: Publish to PyPI (Trusted Publishing)
+        uses: pypa/gh-action-pypi-publish@release/v1
