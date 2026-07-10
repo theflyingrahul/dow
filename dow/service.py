@@ -11,6 +11,7 @@ the two surfaces can never drift apart.
 """
 from __future__ import annotations
 
+import re
 import shutil
 import tempfile
 from datetime import datetime, timezone
@@ -560,7 +561,7 @@ def get_aggregation(root, name: Optional[str] = None, agg_id: Optional[str] = No
         raise DowError("Provide an aggregation id (e.g. a1). List them with 'dow aggregate --list'.")
     try:
         return store.get_aggregation(name, agg_id)
-    except FileNotFoundError as exc:
+    except (FileNotFoundError, ValueError) as exc:
         raise DowError(str(exc))
 
 
@@ -950,8 +951,9 @@ def tree(root, name: Optional[str] = None, mermaid: bool = False) -> dict:
 def docs(command: Optional[str] = None) -> dict:
     """Return dow's documentation: the overview, or one command's help text."""
     if command:
+        safe = re.fullmatch(r"[a-z][a-z0-9_-]*", command)
         path = DOCS_DIR / f"{command}.txt"
-        if not path.exists():
+        if not safe or not path.exists() or path.resolve().parent != DOCS_DIR.resolve():
             raise DowError(f"No documentation for '{command}'. Try one of: {', '.join(_doc_commands())}.")
         return {"command": command, "text": path.read_text(encoding="utf-8")}
     overview = DOCS_DIR / "README.md"

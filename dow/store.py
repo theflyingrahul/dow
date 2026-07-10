@@ -15,6 +15,7 @@ from __future__ import annotations
 import dataclasses
 import hashlib
 import json
+import os
 from pathlib import Path
 from typing import Optional
 
@@ -24,6 +25,29 @@ from .spec import flatten
 STORE_DIR = ".dow"
 ARTIFACTS_DIR = "artifacts"
 AGGREGATIONS_DIR = "aggregations"
+
+
+def _safe_component(value, kind: str) -> str:
+    """Guard a single path component dow joins into a store path.
+
+    Version ids, aggregation ids, spec names, and artifact references reach the
+    store from callers - including the MCP tools and resources advertised as
+    read-only - so a value bearing a path separator, ``..``, an absolute prefix,
+    or a NUL byte must never be joined into a filesystem path: it would escape
+    the ``.dow`` store and read arbitrary files. Only a plain single-segment
+    slug is accepted.
+    """
+    s = str(value)
+    if (
+        s in ("", ".", "..")
+        or s != os.path.basename(s)
+        or "/" in s
+        or "\\" in s
+        or "\x00" in s
+        or os.path.isabs(s)
+    ):
+        raise ValueError(f"Invalid {kind}: {value!r}")
+    return s
 
 
 def _json_default(obj):
@@ -105,7 +129,19 @@ class Store:
         """Rehydrate an artifact-referenced ``payload`` back into the record."""
         payload = record.get("payload")
         if isinstance(payload, dict) and "__artifact__" in payload:
-            art = self.artifacts_dir / payload["__artifact__"]
+            ref = str(payload["__artifact__"])
+            if (
+                ref in ("", ".", "..")
+                or ref != os.path.basename(ref)
+                or "/" in ref
+                or "\\" in ref
+                or "\x00" in ref
+                or os.path.isabs(ref)
+            ):
+                record["_payload_integrity"] = "invalid-artifact-ref"
+                record["payload"] = None
+                return record
+            art = self.artifacts_dir / ref
             if not art.exists():
                 record["_payload_missing"] = payload
                 record["payload"] = None
@@ -245,6 +281,8 @@ class Store:
         return vid
 
     def get_record(self, spec_name: str, version_id: str) -> dict:
+        spec_name = _safe_component(spec_name, "spec name")
+        version_id = _safe_component(version_id, "version id")
         path = self.dir / "versions" / spec_name / f"{version_id}.json"
         if not path.exists():
             raise FileNotFoundError(f"Unknown version: {version_id}")
@@ -340,6 +378,8 @@ class Store:
         return self._load_index().get("specs", {}).get(spec_name, {}).get("aggregations", [])
 
     def get_aggregation(self, spec_name: str, agg_id: str) -> dict:
+        spec_name = _safe_component(spec_name, "spec name")
+        agg_id = _safe_component(agg_id, "aggregation id")
         path = self.dir / AGGREGATIONS_DIR / spec_name / f"{agg_id}.json"
         if not path.exists():
             raise FileNotFoundError(f"Unknown aggregation: {agg_id}")

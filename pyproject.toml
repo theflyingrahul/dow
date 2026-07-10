@@ -1,13 +1,46 @@
 [build-system]
-requires = ["setuptools>=68"]
+requires = ["setuptools>=77"]
 build-backend = "setuptools.build_meta"
 
 [project]
 name = "dow"
-version = "0.1.0"
 description = "Drift Observation Workbench - Git for AI behavior."
 readme = "README.md"
 requires-python = ">=3.9"
+license = "MIT"
+license-files = ["LICENSE"]
+authors = [
+    { name = "theflyingrahul", email = "rahulsserver@gmail.com" },
+]
+maintainers = [
+    { name = "theflyingrahul", email = "rahulsserver@gmail.com" },
+]
+keywords = [
+    "llm",
+    "reproducibility",
+    "provenance",
+    "versioning",
+    "drift",
+    "evaluation",
+    "experiment-tracking",
+    "mcp",
+]
+classifiers = [
+    "Development Status :: 5 - Production/Stable",
+    "Environment :: Console",
+    "Intended Audience :: Science/Research",
+    "Intended Audience :: Developers",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+    "Topic :: Software Development :: Version Control",
+]
+dynamic = ["version"]
 dependencies = [
     "typer>=0.12",
     "rich>=13",
@@ -22,6 +55,11 @@ local = ["sentence-transformers>=2.7"]
 mcp = ["mcp>=1.9"]
 dev = ["pytest>=7"]
 
+[project.urls]
+Homepage = "https://github.com/theflyingrahul/dow"
+Repository = "https://github.com/theflyingrahul/dow"
+Issues = "https://github.com/theflyingrahul/dow/issues"
+
 [project.scripts]
 dow = "dow.cli:main"
 dow-mcp = "dow.mcp_server:main"
@@ -29,8 +67,22 @@ dow-mcp = "dow.mcp_server:main"
 [tool.setuptools]
 packages = ["dow"]
 
+[tool.setuptools.dynamic]
+version = { attr = "dow.__version__" }
+
 [tool.setuptools.package-data]
 dow = ["docs/*.txt"]
 
 [tool.setuptools.data-files]
 "share/man/man1" = ["man/dow.1"]
+
+[tool.bandit]
+# Reviewed, accepted low-risk findings (see tests/test_security.py for the pinned
+# boundaries): git is invoked as an argv list (never shell=True); the HTTP
+# providers target localhost or an operator-set VLLM_BASE_URL (not spec data);
+# the mock provider's RNG is a deterministic, non-cryptographic fixture.
+skips = ["B404", "B603", "B607", "B310", "B311", "B110"]
+
+[tool.ruff]
+target-version = "py39"
+line-length = 100
