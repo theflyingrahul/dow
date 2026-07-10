@@ -25,8 +25,23 @@ class GitStore:
         return proc.stdout.strip()
 
     def is_repo(self) -> bool:
+        """True only if this directory is *its own* git repository top-level.
+
+        dow's store (``.dow``) normally lives *inside* the project's own git
+        repository, so a naive ``rev-parse --is-inside-work-tree`` would walk up
+        and report the enclosing project repo - causing dow to ``git add -A`` and
+        commit the whole project tree into the project's history. The store must
+        be self-contained, so we treat it as a repo only when its own top-level
+        resolves to this exact directory (git stops walking up once it finds the
+        ``.dow/.git`` created by :meth:`init`).
+        """
+        if not self.root.exists():
+            return False
+        top = self._run("rev-parse", "--show-toplevel", check=False)
+        if not top:
+            return False
         try:
-            return self._run("rev-parse", "--is-inside-work-tree", check=False) == "true"
+            return Path(top).resolve() == self.root.resolve()
         except Exception:
             return False
 

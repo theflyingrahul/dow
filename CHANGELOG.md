@@ -4,6 +4,21 @@ All notable changes to dow are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/), and dow adheres to
 [Semantic Versioning](https://semver.org/).
 
+## [2.0.1] - 2025
+
+### Fixed
+- **Store isolation when nested inside another git repository.** dow keeps its
+  behavior store in a hidden `.dow` git repo. When that store lived *inside* a
+  project's own repository (the normal deployment - e.g. a project's
+  `.../dow_adapter/` folder), `GitStore.is_repo()` walked up to the enclosing
+  repo and reported it as dow's store, so `dow commit` / `aggregate` / `tag` ran
+  `git add -A` against the **host project repo** and committed the entire project
+  tree (including unrelated files) into the project's history. `is_repo()` now
+  treats a directory as dow's store only when its own git top-level resolves to
+  that exact directory, so dow always creates and uses its own `.dow/.git` and
+  never touches the surrounding project repo. Regression tests added
+  (`tests/test_gitstore_isolation.py`).
+
 ## [2.0.0] - 2025
 
 First packaged release on PyPI. dow remains a slim, data-structure-agnostic
