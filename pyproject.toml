@@ -22,9 +22,12 @@ dependencies = [
 [project.optional-dependencies]
 openai = ["openai>=1.40"]
 local = ["sentence-transformers>=2.7"]
+# Model Context Protocol server (dow-mcp) exposing the core workbench to LLM clients.
+mcp = ["mcp>=1.9"]
 
 [project.scripts]
 dow = "dow.cli:main"
+dow-mcp = "dow.mcp_server:main"
 
 [tool.setuptools]
 packages = ["dow"]

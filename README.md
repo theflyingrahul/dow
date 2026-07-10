@@ -25,6 +25,7 @@ Optional providers:
 ```bash
 pip install -e ".[openai]"        # hosted models and embeddings
 pip install -e ".[local]"         # local sentence-transformers embeddings
+pip install -e ".[mcp]"           # Model Context Protocol server (dow-mcp)
 ```
 
 ## Use
@@ -111,6 +112,43 @@ npm run build      # bundles the UI into dow/web/, where dow dashboard serves it
 
 See [dashboard/README.md](dashboard/README.md) for the design system and
 front-end development workflow (including a mock-data preview mode).
+
+## MCP server
+
+Prefer to drive dow from an AI agent? `dow-mcp` exposes the core workbench over
+the [Model Context Protocol](https://modelcontextprotocol.io) (stdio), so an MCP
+client can scaffold specs, capture versions, and compare/explain drift on your
+behalf. It runs on the same engine as the CLI - both call into
+[dow/service.py](dow/service.py), so the two surfaces never drift apart - and
+works fully offline by default (mock provider + built-in embedder).
+
+```bash
+pip install -e ".[mcp]"   # or: pip install "dow[mcp]"
+dow-mcp                    # serve over stdio (usually launched by your MCP client)
+```
+
+Point an MCP client at the `dow-mcp` command and set the project directory it
+should operate on:
+
+```json
+{
+  "mcpServers": {
+    "dow": {
+      "command": "dow-mcp",
+      "env": { "DOW_PROJECT_DIR": "/path/to/your/project" }
+    }
+  }
+}
+```
+
+Each tool resolves its project directory from the `project_dir` argument, else
+the `DOW_PROJECT_DIR` environment variable, else the server's current directory.
+The 13 tools mirror the CLI: `dow_list_specs`, `dow_init`, `dow_read_spec`,
+`dow_write_spec`, `dow_commit`, `dow_compare`, `dow_explain`, `dow_eval`,
+`dow_history`, `dow_inspect`, `dow_tag`, `dow_tree`, and `dow_docs`. They return
+structured JSON (drift scores, verdicts, config diffs, metrics, the version
+tree, and Mermaid), so a client can run the full edit -> commit -> compare loop.
+The web dashboard is intentionally out of scope for the MCP server.
 
 ## Documentation and the manual page
 
