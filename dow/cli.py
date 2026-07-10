@@ -477,6 +477,32 @@ def _render_manpage() -> str:
             out.append(".fi")
             out.append(".RE")
             out.append(".PP")
+    out.append(".SH BACKENDS")
+    out.append(
+        "The model sits behind one provider interface, chosen by \\fBmodel.provider\\fR "
+        "in the spec. dow runs fully offline by default."
+    )
+    out.append(".RS")
+    out.append(".TP")
+    out.append(".B mock")
+    out.append("Deterministic offline mock (default); no network or API keys.")
+    out.append(".TP")
+    out.append(".B python")
+    out.append("A local Python callable (path.py:function); version your own generator offline.")
+    out.append(".TP")
+    out.append(".B openai")
+    out.append("OpenAI hosted models; set OPENAI_API_KEY.")
+    out.append(".TP")
+    out.append(".B ollama")
+    out.append("Local Ollama runtime at http://localhost:11434.")
+    out.append(".TP")
+    out.append(".B vllm")
+    out.append(
+        "A vLLM OpenAI-compatible server, local or remote. Set VLLM_BASE_URL "
+        "(default http://localhost:8000/v1) and, if the server requires it, VLLM_API_KEY."
+    )
+    out.append(".RE")
+    out.append(".PP")
     out.append(".SH SEE ALSO")
     out.append("Run \\fBdow help\\fR or \\fBdow help \\fICOMMAND\\fR for interactive help.")
     return "\n".join(out) + "\n"

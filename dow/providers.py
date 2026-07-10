@@ -4,6 +4,7 @@ from __future__ import annotations
 import hashlib
 import importlib
 import importlib.util
+import os
 import random
 import re
 import sys
@@ -186,6 +187,91 @@ class OllamaProvider:
         )
 
 
+class VLLMProvider:
+    """vLLM served over its OpenAI-compatible HTTP API - local or remote.
+
+    vLLM exposes an OpenAI-compatible server (``vllm serve <model>``), so dow
+    talks to it over plain HTTP and needs no GPU or vLLM client library on this
+    side. One provider drives both deployment modes; only the endpoint changes:
+
+    - Local server (the default):  ``http://localhost:8000/v1``
+    - Remote server:               set ``VLLM_BASE_URL``, e.g.
+      ``https://vllm.internal.example.com/v1``.
+
+    Set ``VLLM_API_KEY`` when the server was started with ``--api-key``. The
+    ``model`` sent is ``model.version`` (falling back to ``model.name``) and must
+    match the server's served model name (``--served-model-name``).
+    """
+
+    name = "vllm"
+    DEFAULT_BASE_URL = "http://localhost:8000/v1"
+
+    def __init__(self, spec):
+        self.spec = spec
+        base = (os.environ.get("VLLM_BASE_URL") or self.DEFAULT_BASE_URL).strip().rstrip("/")
+        self.base_url = base
+        self.endpoint = base + "/chat/completions"
+        self.api_key = os.environ.get("VLLM_API_KEY", "").strip()
+
+    def generate(self, input_text: str, sample_index: int) -> Generation:
+        import json as _json
+        import urllib.error
+        import urllib.request
+
+        s = self.spec
+        messages = []
+        if s.prompt.system:
+            messages.append({"role": "system", "content": s.prompt.system})
+        messages.append({"role": "user", "content": s.prompt.template.format(input=input_text)})
+        body = {
+            "model": s.model.version or s.model.name,
+            "messages": messages,
+            "temperature": s.sampling.temperature,
+            "top_p": s.sampling.top_p,
+            "max_tokens": s.sampling.max_tokens,
+            "frequency_penalty": s.sampling.frequency_penalty,
+            "presence_penalty": s.sampling.presence_penalty,
+            "stop": s.sampling.stop,
+            "seed": s.sampling.seed,
+        }
+        headers = {"Content-Type": "application/json"}
+        if self.api_key:
+            headers["Authorization"] = f"Bearer {self.api_key}"
+        req = urllib.request.Request(
+            self.endpoint, data=_json.dumps(body).encode("utf-8"), headers=headers
+        )
+        start = time.perf_counter()
+        try:
+            with urllib.request.urlopen(req) as r:
+                data = _json.loads(r.read().decode("utf-8"))
+        except urllib.error.HTTPError as exc:
+            detail = exc.read().decode("utf-8", "replace").strip()
+            raise RuntimeError(
+                f"vLLM server at {self.base_url} returned HTTP {exc.code}: {detail or exc.reason}. "
+                "Check that 'model' matches the server's --served-model-name, and that "
+                "VLLM_API_KEY is set if the server requires one."
+            ) from exc
+        except urllib.error.URLError as exc:
+            raise RuntimeError(
+                f"Could not reach the vLLM server at {self.base_url} ({exc.reason}). "
+                "Start a local server with 'vllm serve <model>', or point VLLM_BASE_URL at a "
+                "remote server's OpenAI-compatible endpoint (e.g. http://host:8000/v1)."
+            ) from exc
+        latency = int((time.perf_counter() - start) * 1000)
+        choice = (data.get("choices") or [{}])[0]
+        text = (choice.get("message") or {}).get("content") or ""
+        usage = data.get("usage") or {}
+        tokens = usage.get("completion_tokens") or len(text.split())
+        return Generation(
+            output=text,
+            tokens=tokens,
+            latency_ms=latency,
+            model_version=data.get("model", s.model.version),
+            model_revision=s.model.revision,
+            system_fingerprint=data.get("system_fingerprint"),
+        )
+
+
 def _load_provider_callable(ref: str, base_dir: Path):
     """Load a ``path/to/file.py:function`` or ``module:function`` callable.
 
@@ -278,6 +364,8 @@ def get_provider(spec):
         return OpenAIProvider(spec)
     if provider == "ollama":
         return OllamaProvider(spec)
+    if provider == "vllm":
+        return VLLMProvider(spec)
     if provider == "python":
         return PythonProvider(spec)
     raise ValueError(f"Unknown provider: {provider}")

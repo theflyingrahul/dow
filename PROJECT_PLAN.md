@@ -61,7 +61,7 @@ The unit of versioning is the inference specification. A version of AI behavior 
 |---|---|---|
 | Command-line interface | Python with Typer and Rich | Rapid development; formatted tables and diffs in the terminal |
 | Versioning and storage | Git (via subprocess), hidden behind the tool | Durable, recoverable version history with no version-control commands for the user |
-| Inference | A provider interface over a hosted model (OpenAI) or a local runtime (Ollama), with a mock mode | Enables fully local or offline operation and isolates the model behind one interface |
+| Inference | A provider interface over a hosted model (OpenAI) or a local runtime (Ollama or a vLLM server, local or remote), with a mock mode | Enables fully local or offline operation and isolates the model behind one interface |
 | Embeddings | Built-in hashing embedder by default; sentence-transformers or a hosted model optionally | Required for semantic drift; the default keeps the tool fully offline with no model download |
 | Metrics | numpy and difflib | Cosine similarity, variance, and text difference |
 | Specification format | YAML (PyYAML) | Human-readable and diff-friendly under version control |
@@ -91,7 +91,7 @@ prompt:
   few_shot: []
 
 model:
-  provider: mock                    # mock | openai | ollama
+  provider: mock                    # mock | openai | ollama | vllm
   name: mock-summarizer
   version: mock-2024-07-18          # pinned snapshot, never a floating alias
   revision: null                    # model commit or revision hash for open-weight models
@@ -432,7 +432,7 @@ dow compare             # v1 vs v2
 dow explain             # what caused the change
 ```
 
-The tool runs entirely offline by default (mock provider and a built-in hashing embedder). Set the provider to a local runtime (Ollama) for local models, or supply `OPENAI_API_KEY` only when using a hosted model.
+The tool runs entirely offline by default (mock provider and a built-in hashing embedder). Set the provider to a local runtime (Ollama, or a vLLM server via `VLLM_BASE_URL` - local or remote) for open-weight models, or supply `OPENAI_API_KEY` only when using a hosted model.
 
 ---
 

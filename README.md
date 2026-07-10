@@ -52,6 +52,51 @@ a tree - `dow commit --from v1` branches from an earlier version. Runs fully
 offline by default (mock provider + built-in hashing embedder); no API key
 required.
 
+## Backends
+
+The model sits behind one provider interface, selected by `model.provider` in the
+spec. dow runs fully offline by default and never requires a backend.
+
+| `provider` | Backend | Notes |
+|---|---|---|
+| `mock` | Deterministic offline mock (default) | No network or keys; ideal for demos and golden tests |
+| `python` | A local Python callable (`path.py:function`) | Version your own generator, fully offline |
+| `openai` | OpenAI hosted models | `pip install -e ".[openai]"`; set `OPENAI_API_KEY` |
+| `ollama` | Local Ollama runtime | Talks to `http://localhost:11434` |
+| `vllm` | vLLM OpenAI-compatible server, local or remote | HTTP only - no extra dependency (see below) |
+
+### vLLM (local or remote)
+
+`provider: vllm` talks to a [vLLM](https://docs.vllm.ai) server over its
+OpenAI-compatible HTTP API, so dow itself needs no GPU or vLLM library - just a
+reachable server. One provider covers both deployments; only the endpoint changes.
+
+Local server:
+
+```bash
+pip install vllm                                 # on the machine with the GPU/model
+vllm serve meta-llama/Llama-3.1-8B-Instruct      # serves http://localhost:8000/v1
+```
+
+```yaml
+model:
+  provider: vllm
+  name: meta-llama/Llama-3.1-8B-Instruct         # informational
+  version: meta-llama/Llama-3.1-8B-Instruct      # sent as the request "model" (the served name)
+```
+
+Remote server - point dow at it with an environment variable:
+
+```bash
+export VLLM_BASE_URL="https://vllm.internal.example.com/v1"
+export VLLM_API_KEY="..."     # only if the server was started with --api-key
+dow commit
+```
+
+`VLLM_BASE_URL` defaults to `http://localhost:8000/v1`. The spec's `model.version`
+(falling back to `model.name`) is sent as the request's `model` and must match the
+server's `--served-model-name`.
+
 ## Custom metrics
 
 Plug in your own evaluators - plain functions that receive an `EvalContext` and
