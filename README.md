@@ -44,7 +44,6 @@ dow history        # list captured versions, stability, and tags
 dow inspect v1     # one version's spec, runtime capture, outputs, tags, eval
 dow tree           # visualize how behavior evolves across versions
 dow tree -o evolution.md   # export a Mermaid diagram; open the Markdown preview
-dow dashboard      # open a live web dashboard of your versions, drift, and verdicts
 ```
 
 Versions are named automatically (v1, v2, ...); refer to them by name, the
@@ -74,44 +73,6 @@ def avg_word_count(ctx):
 `dow eval` runs them, saves the scores with the version, and compares against
 the previous version and the last one you tagged (`dow tag good`). Evaluation
 is automatic on `dow commit` and reused thereafter unless you pass `--rerun`.
-
-## Dashboard
-
-Prefer a visual view? `dow dashboard` opens a local web UI backed by your live
-behavior store - the version tree, per-version configuration and outputs,
-stability and custom-evaluator metrics, and the drift score and verdict between
-any two versions (computed with the same engine as `dow compare`).
-
-```bash
-dow dashboard                       # open the dashboard in your browser
-dow dashboard --spec summarization  # choose a spec when the store has more than one
-dow dashboard --port 8080 --no-open # bind a fixed port and don't launch a browser
-dow dashboard --export data.json    # write the underlying JSON without starting a server
-```
-
-The server binds to `localhost` only and accepts edits from the local machine
-only. It reflects the store live - capture more versions with `dow commit` in
-another terminal and use the **Refresh** button to see them. You can also edit
-the spec and capture versions straight from the UI: open the dashboard right
-after `dow init` (before any commit) and use **Capture your first version** to
-make `v1`, or **Edit spec** to tweak the spec and capture again.
-
-The UI ships prebuilt with the package, so a regular `pip install` is all you
-need. Building a distribution (`python -m build` or `pip wheel .`) compiles the
-dashboard automatically through the in-tree build backend
-([build_backend.py](build_backend.py)), so released wheels always contain fresh
-assets - this needs Node 18+ at build time. Set `DOW_SKIP_DASHBOARD_BUILD=1` to
-skip it (for example, CI that builds the UI in a separate step). To build the
-bundle yourself from a source checkout:
-
-```bash
-cd dashboard
-npm install
-npm run build      # bundles the UI into dow/web/, where dow dashboard serves it from
-```
-
-See [dashboard/README.md](dashboard/README.md) for the design system and
-front-end development workflow (including a mock-data preview mode).
 
 ## MCP server
 
@@ -148,7 +109,6 @@ The 13 tools mirror the CLI: `dow_list_specs`, `dow_init`, `dow_read_spec`,
 `dow_history`, `dow_inspect`, `dow_tag`, `dow_tree`, and `dow_docs`. They return
 structured JSON (drift scores, verdicts, config diffs, metrics, the version
 tree, and Mermaid), so a client can run the full edit -> commit -> compare loop.
-The web dashboard is intentionally out of scope for the MCP server.
 
 ## Documentation and the manual page
 
