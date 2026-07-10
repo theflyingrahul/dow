@@ -22,6 +22,7 @@ class Generation:
     model_version: str
     model_revision: Any
     system_fingerprint: Any
+    payload: Any = None
 
 
 @dataclass
@@ -338,9 +339,11 @@ class PythonProvider:
         )
         start = time.perf_counter()
         result = self._fn(req)
+        payload = None
         if isinstance(result, dict):
             text = str(result.get("output", ""))
             tokens = int(result.get("tokens", len(text.split())))
+            payload = result.get("payload")
         else:
             text = str(result)
             tokens = len(text.split())
@@ -353,10 +356,11 @@ class PythonProvider:
             model_version=s.model.version,
             model_revision=s.model.revision,
             system_fingerprint=fp,
+            payload=payload,
         )
 
 
-def get_provider(spec):
+def get_provider(spec, base_dir=None):
     provider = (spec.model.provider or "mock").lower()
     if provider == "mock":
         return MockProvider(spec)
@@ -367,5 +371,5 @@ def get_provider(spec):
     if provider == "vllm":
         return VLLMProvider(spec)
     if provider == "python":
-        return PythonProvider(spec)
+        return PythonProvider(spec, base_dir)
     raise ValueError(f"Unknown provider: {provider}")

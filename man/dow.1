@@ -84,6 +84,11 @@ semantic drift between the two versions, the stability of each, and an overall
 verdict against the spec's thresholds. With no arguments, compares the previous
 version against the latest.
 .PP
+If the spec lists evaluation.comparators (your own paired metrics \- agreement or
+reliability coefficients that need both versions aligned per item through their
+captured payload), their results are shown beneath the built\-in signals. dow
+ships none of these coefficients; it only wires in the callables you reference.
+.PP
 Arguments:
 .RS
 .TP
@@ -119,6 +124,12 @@ Pairs the measured drift and stability change with the exact spec fields that
 differ between the versions. If more than one field changed at once, the result
 is flagged as confounded, since no single cause can be isolated. Defaults to the
 previous version versus the latest.
+.PP
+Any evaluation.comparators declared in the spec (your own paired metrics \- e.g.
+agreement or reliability coefficients over the two versions' aligned payloads)
+are shown beneath the attribution, so you see how far each coefficient moved \-
+with its confidence interval \- alongside the single field that caused it. dow
+ships none of these coefficients; it only runs the callables you reference.
 .PP
 Arguments:
 .RS
@@ -248,6 +259,10 @@ Use \-\-draft to evaluate your current working spec without committing a version
 edit the spec, run 'dow eval \-\-draft' to see the scores against the previous and
 last\-good versions, iterate, and run 'dow commit' when you are happy with it.
 .PP
+Evaluators score one version on its own. Their paired counterpart \-
+evaluation.comparators, which score one version against another (agreement or
+reliability coefficients) \- run instead on 'dow compare' and 'dow explain'.
+.PP
 Arguments:
 .RS
 .TP
@@ -368,3 +383,4 @@ A vLLM OpenAI-compatible server, local or remote. Set VLLM_BASE_URL (default htt
 .PP
 .SH SEE ALSO
 Run \fBdow help\fR or \fBdow help \fICOMMAND\fR for interactive help.
+

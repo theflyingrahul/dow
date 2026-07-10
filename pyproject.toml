@@ -20,6 +20,7 @@ openai = ["openai>=1.40"]
 local = ["sentence-transformers>=2.7"]
 # Model Context Protocol server (dow-mcp) exposing the core workbench to LLM clients.
 mcp = ["mcp>=1.9"]
+dev = ["pytest>=7"]
 
 [project.scripts]
 dow = "dow.cli:main"

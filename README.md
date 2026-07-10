@@ -119,6 +119,35 @@ def avg_word_count(ctx):
 the previous version and the last one you tagged (`dow tag good`). Evaluation
 is automatic on `dow commit` and reused thereafter unless you pass `--rerun`.
 
+### Paired comparators
+
+Some metrics compare one version **against another**, item by item - agreement
+and reliability coefficients (weighted kappa, Krippendorff's alpha, Gwet AC2,
+ICC, flip rate) and their confidence intervals. dow ships none of them: you plug
+in your own paired callables under `evaluation.comparators`. A comparator receives
+a `CompareContext` with both versions (`a` = baseline, `b` = variant), each
+exposing its per-item `payload`, and may return a number or a
+`{estimate, ci_low, ci_high}` band:
+
+```yaml
+evaluation:
+  comparators:
+    - metrics.py:weighted_kappa    # local file : function
+```
+
+```python
+# metrics.py
+def flip_rate(cctx):
+    a, b = cctx.a.payload["labels"], cctx.b.payload["labels"]
+    return sum(x != y for x, y in zip(a, b)) / len(a)
+```
+
+Comparators run on `dow compare` and `dow explain`, so the same attribution that
+pins a change to a single field also reports how far the coefficient moved. The
+`payload` a comparator reads is any structured per-item data a `python` provider
+returns alongside its text output; dow keeps it out of git (content-addressed
+under `.dow/artifacts/`) and rehydrates it on read.
+
 ## MCP server
 
 Prefer to drive dow from an AI agent? `dow-mcp` exposes the core workbench over

@@ -24,11 +24,31 @@ from pathlib import Path
 class EvalContext:
     """Everything an evaluator needs about one captured version."""
 
-    input: str
+    input: object
     outputs: list
     config: dict
     runtime: dict
     samples: list = field(default_factory=list)
+    payload: object = None
+
+
+@dataclass
+class CompareContext:
+    """Everything a paired comparator needs about two captured versions.
+
+    A comparator is the paired counterpart of an evaluator: where an evaluator
+    scores one version in isolation, a comparator receives *both* versions
+    (baseline ``a`` and variant ``b``) aligned per item through their captured
+    ``payload`` - exactly what an agreement/reliability coefficient (weighted
+    kappa, Krippendorff's alpha, Gwet AC2, ICC, flip rate, ...) needs. dow ships
+    none of those coefficients: the project supplies them as ``comparators``.
+    """
+
+    a: EvalContext
+    b: EvalContext
+    config_diff: dict = field(default_factory=dict)
+    a_id: str = ""
+    b_id: str = ""
 
 
 def _load_callable(ref: str, base_dir: Path):
@@ -69,17 +89,65 @@ def run_evaluators(refs, ctx: EvalContext, base_dir) -> dict:
     return results
 
 
+def run_comparators(refs, cctx: CompareContext, base_dir) -> dict:
+    """Run each referenced paired comparator over two versions and merge results.
+
+    Unlike :func:`run_evaluators` (single version, scalar), a comparator sees both
+    versions and may return richer values: a plain number, or a mapping such as
+    ``{"estimate": .., "ci_low": .., "ci_high": ..}`` (an agreement coefficient
+    with its bootstrap CI). Structured values are stored verbatim - dow does not
+    coerce or interpret them; the render layer formats numbers and CI bands.
+    """
+    base_dir = Path(base_dir)
+    results: dict = {}
+    for ref in refs or []:
+        name, fn = _load_callable(ref, base_dir)
+        out = fn(cctx)
+        if isinstance(out, dict) and not _is_metric_value(out):
+            for key, value in out.items():
+                results[str(key)] = _clean_value(value)
+        else:
+            results[name] = _clean_value(out)
+    return results
+
+
+def _is_metric_value(d: dict) -> bool:
+    """A dict is a single metric value (not a bag of metrics) if it looks like a
+    point estimate with an optional interval, e.g. ``{estimate, ci_low, ci_high}``."""
+    return "estimate" in d or ("ci_low" in d and "ci_high" in d)
+
+
+def _clean_value(v):
+    """Keep a metric value JSON-serializable: a float, or a dict/list thereof."""
+    if isinstance(v, bool):
+        return v
+    if isinstance(v, (int, float)):
+        return float(v)
+    if isinstance(v, dict):
+        return {str(k): _clean_value(x) for k, x in v.items()}
+    if isinstance(v, (list, tuple)):
+        return [_clean_value(x) for x in v]
+    return v
+
+
+def build_eval_context(record: dict) -> EvalContext:
+    """Construct an EvalContext (including any captured payload) from a record."""
+    config = record.get("config", {})
+    return EvalContext(
+        input=record.get("input", ""),
+        outputs=[s.get("output", "") for s in record.get("samples", [])],
+        config=config,
+        runtime=record.get("runtime", {}),
+        samples=record.get("samples", []),
+        payload=record.get("payload"),
+    )
+
+
 def evaluate_version(record: dict, base_dir) -> dict:
     """Build an EvalContext from a version record and run its configured metrics."""
     config = record.get("config", {})
     refs = config.get("evaluation", {}).get("metrics", [])
-    ctx = EvalContext(
-        input=record.get("input", ""),
-        outputs=[s["output"] for s in record.get("samples", [])],
-        config=config,
-        runtime=record.get("runtime", {}),
-        samples=record.get("samples", []),
-    )
+    ctx = build_eval_context(record)
     return {
         "metrics": run_evaluators(refs, ctx, base_dir),
         "evaluators": list(refs),

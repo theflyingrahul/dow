@@ -133,6 +133,39 @@ def print_compare(name, a_id, b_id, config_diff, outdiff, drift, stab_a, stab_b,
     console.print(f"[bold]Verdict:[/bold] [{color}]{verdict_label}[/{color}]")
 
 
+def _fmt_metric_value(v) -> str:
+    """Format a comparator value: a number, or an ``{estimate, ci_low, ci_high}`` band."""
+    if isinstance(v, bool):
+        return str(v)
+    if isinstance(v, (int, float)):
+        return f"{float(v):.3f}"
+    if isinstance(v, dict):
+        est = v.get("estimate")
+        lo, hi = v.get("ci_low"), v.get("ci_high")
+        if isinstance(est, (int, float)) and isinstance(lo, (int, float)) and isinstance(hi, (int, float)):
+            return f"{est:.3f}  [{lo:.3f}, {hi:.3f}]"
+        if isinstance(est, (int, float)):
+            return f"{est:.3f}"
+        return "  ".join(f"{k}={_fmt_metric_value(x)}" for k, x in v.items())
+    return str(v)
+
+
+def print_comparators(comparators: dict, refs=None, error=None) -> None:
+    """Render the project's paired-comparator results beneath a compare/explain."""
+    if error:
+        console.print(f"[yellow]comparators skipped:[/yellow] {error}")
+        return
+    if not comparators:
+        return
+    console.print("[bold]Paired comparators[/bold] [dim](project-defined)[/dim]")
+    table = Table(box=box.SIMPLE, header_style="bold")
+    table.add_column("metric")
+    table.add_column("value", justify="right")
+    for k in sorted(comparators):
+        table.add_row(k, _fmt_metric_value(comparators[k]))
+    console.print(table)
+
+
 def print_explain(name, a_id, b_id, config_diff, confounded, verdict_label, drift, stab_change) -> None:
     console.print(
         Panel.fit(
