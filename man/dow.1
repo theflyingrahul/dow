@@ -1,4 +1,4 @@
-.TH DOW 1 "2026-06-25" "dow 0.1.0" "Drift Observation Workbench"
+.TH DOW 1 "2026-07-10" "dow 0.1.0" "Drift Observation Workbench"
 .SH NAME
 dow \- track how your AI's behavior changes across versions
 .SH SYNOPSIS
@@ -309,50 +309,6 @@ Examples:
 .nf
 dow tree
 dow tree \-o evolution.md
-.fi
-.RE
-.PP
-.SS dashboard
-.B dow dashboard [OPTIONS]
-.PP
-Open the web dashboard backed by your live behavior store.
-.PP
-Serves a local, read\-only dashboard that visualizes the versions you have
-captured with 'dow commit': the version tree, per\-version configuration and
-outputs, stability and custom evaluator metrics, and drift/verdicts between
-versions (computed with the same engine as 'dow compare').
-.PP
-The dashboard reflects your .dow store live. Capture more versions with
-'dow commit' in another terminal and refresh the page to see them. It binds to
-localhost only; use \-\-host/\-\-port to change where it listens. Use \-\-export to
-write the underlying data as JSON without starting a server. Aliased as 'dow dash'.
-.PP
-Options:
-.RS
-.TP
-.B \-\-spec, \-s
-Spec to display (default: the only/first spec).
-.TP
-.B \-\-port, \-p
-Port to serve on (0 picks a free port).
-.TP
-.B \-\-host
-Interface to bind (localhost by default).
-.TP
-.B \-\-no\-open
-Do not open a browser window automatically.
-.TP
-.B \-\-export
-Write the live data to a JSON file and exit (no server).
-.RE
-.PP
-Examples:
-.RS
-.nf
-dow dashboard
-dow dashboard \-\-spec summarization
-dow dashboard \-\-port 8080 \-\-no\-open
-dow dashboard \-\-export dow\-data.json
 .fi
 .RE
 .PP
