@@ -421,15 +421,17 @@ def help_command(
 
 
 def _dow_version() -> str:
+    from dow import __version__
+
     try:
         from importlib.metadata import PackageNotFoundError, version
 
         try:
             return version("dow")
         except PackageNotFoundError:
-            return "0.1.0"
+            return __version__
     except Exception:
-        return "0.1.0"
+        return __version__
 
 
 def _roff(text: str) -> str:

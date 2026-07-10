@@ -8,7 +8,7 @@ Fully offline - no API key required.
 ## 0. Install dow (once)
 
 ```powershell
-cd C:\Users\t-pmurugaraj\code\dow
+cd path\to\dow
 python -m venv .venv
 .\.venv\Scripts\Activate.ps1
 pip install -e .
@@ -34,7 +34,7 @@ For the rest of the runbook we use a project already initialized for a
 ## 2. Open the chatbot project
 
 ```powershell
-cd C:\Users\t-pmurugaraj\code\dow\demo
+cd path\to\dow\demo
 Get-ChildItem                 # chatbot.py (the bot), evals.py (metrics), specs\chatbot.yaml (the spec)
 ```
 

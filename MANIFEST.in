@@ -1,2 +1,7 @@
 # Ship the manual page in the sdist so `man dow` works from source installs.
 include man/dow.1
+
+# Ship both READMEs in the sdist: PYPI_README.md is the (link-free) PyPI long
+# description; README.md is the richer GitHub front page kept for source installs.
+include README.md
+include PYPI_README.md

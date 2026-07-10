@@ -4,7 +4,24 @@ All notable changes to dow are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/), and dow adheres to
 [Semantic Versioning](https://semver.org/).
 
-## [2.0.1] - 2025
+## [2.0.2] - 2026-07-11
+
+### Changed
+- **Dedicated PyPI long description.** The package now ships a link-free
+  `PYPI_README.md` as its PyPI page (the GitHub `README.md`, with its images and
+  relative links, stays the repository front page). PyPI does not resolve a
+  project's relative links or images, so the previous page showed broken
+  references; the PyPI description now uses plain prose with absolute repository
+  URLs only and points readers to https://github.com/theflyingrahul/dow for the
+  logo, full design notes, demo, and changelog.
+
+### Fixed
+- `dow --version` now falls back to the packaged `__version__` (single-sourced)
+  instead of a hardcoded placeholder when distribution metadata is unavailable.
+- Corrected the recorded release dates for 2.0.0 and 2.0.1 (both 2026-07-10) and
+  removed a stale absolute path from the demo runbook.
+
+## [2.0.1] - 2026-07-10
 
 ### Fixed
 - **Store isolation when nested inside another git repository.** dow keeps its
@@ -19,7 +36,7 @@ All notable changes to dow are documented here. The format follows
   never touches the surrounding project repo. Regression tests added
   (`tests/test_gitstore_isolation.py`).
 
-## [2.0.0] - 2025
+## [2.0.0] - 2026-07-10
 
 First packaged release on PyPI. dow remains a slim, data-structure-agnostic
 tracking shell that ships no metric, statistics, or plotting code - projects
