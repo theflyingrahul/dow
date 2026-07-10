@@ -147,6 +147,8 @@ def _fmt_metric_value(v) -> str:
         if isinstance(est, (int, float)):
             return f"{est:.3f}"
         return "  ".join(f"{k}={_fmt_metric_value(x)}" for k, x in v.items())
+    if isinstance(v, list):
+        return f"[{len(v)} rows]"
     return str(v)
 
 
@@ -342,3 +344,83 @@ def print_eval(name, vid, target, prev_id, prev, good_tag, good_id, good) -> Non
             f"[dim]no version tagged '{good_tag}' yet - mark one with: "
             f"dow tag {good_tag} <version>[/dim]"
         )
+
+
+def print_figures(figs: dict) -> None:
+    """Render the figures a project's plot functions produced (stored by dow)."""
+    if not figs:
+        return
+    if figs.get("plotError"):
+        console.print(f"[yellow]plots skipped:[/yellow] {figs['plotError']}")
+        return
+    figures = figs.get("figures", [])
+    if not figures:
+        return
+    console.print("[bold]Figures[/bold] [dim](project-defined; stored as artifacts)[/dim]")
+    table = Table(box=box.SIMPLE, header_style="bold")
+    table.add_column("figure")
+    table.add_column("bytes", justify="right")
+    table.add_column("path")
+    for f in figures:
+        table.add_row(f.get("filename", "?"), str(f.get("bytes", "")), f.get("path", ""))
+    console.print(table)
+
+
+def print_aggregation(result: dict) -> None:
+    """Render a cohort-aggregation bundle: members, aggregator values, figures."""
+    name = result.get("spec", "")
+    members = result.get("members", [])
+    labels = result.get("labels", []) or members
+    agg_id = result.get("id", "")
+    title = f"[bold]{name}[/bold]  N-way aggregation over {len(members)} versions"
+    if agg_id:
+        title += f"  ([cyan]{agg_id}[/cyan])"
+    console.print(Panel.fit(title, title="dow aggregate", border_style="blue"))
+    shown = ", ".join(
+        vid + (f" ({lab})" if lab and lab != vid else "")
+        for vid, lab in zip(members, labels)
+    )
+    console.print(f"[bold]Cohort:[/bold] {shown}")
+    if result.get("aggregatorError"):
+        console.print(f"[yellow]aggregators skipped:[/yellow] {result['aggregatorError']}")
+    aggs = result.get("aggregators", {})
+    if aggs:
+        table = Table(box=box.SIMPLE, header_style="bold")
+        table.add_column("metric")
+        table.add_column("value", justify="right")
+        for k in sorted(aggs):
+            table.add_row(k, _fmt_metric_value(aggs[k]))
+        console.print(table)
+    elif not result.get("aggregatorError"):
+        console.print(
+            "[dim]No aggregators configured. Add 'aggregators' under 'evaluation' "
+            "in the spec.[/dim]"
+        )
+    print_figures({
+        "figures": result.get("figures", []),
+        "plotError": result.get("plotError"),
+        "plotRefs": result.get("plotRefs", []),
+    })
+
+
+def print_aggregation_list(name: str, aggregations: list) -> None:
+    """Render the list of persisted cohort-aggregation bundles for a spec."""
+    console.print(
+        Panel.fit(f"[bold]{name}[/bold]  stored aggregations", title="dow aggregate", border_style="blue")
+    )
+    if not aggregations:
+        console.print("[dim]none yet - run 'dow aggregate' to create one[/dim]")
+        return
+    table = Table(box=box.SIMPLE, header_style="bold")
+    table.add_column("id")
+    table.add_column("members", justify="right")
+    table.add_column("figures", justify="right")
+    table.add_column("created")
+    for a in aggregations:
+        table.add_row(
+            a.get("id", "?"),
+            str(len(a.get("members", []))),
+            str(len(a.get("figures", []))),
+            _short_time(a.get("created")),
+        )
+    console.print(table)

@@ -1,0 +1,25 @@
+Aggregate reliability metrics over a cohort of versions (N-way).
+
+Where 'dow compare' contrasts exactly two versions, 'dow aggregate' runs your own
+N-way aggregators over a whole cohort - K seeds, judges, prompt wordings, or
+clustering permutations - selected by an explicit list of versions, a --tag, or
+(by default) the spec's entire history. Each aggregator receives every member
+aligned per item through its captured payload, which is what a reliability
+coefficient over K raters needs (ICC, Fleiss/Gwet, Krippendorff's alpha, ...). dow
+ships none of the coefficients; it only wires in the callables you list under
+evaluation.aggregators.
+
+With --plot, the spec's evaluation.plots functions are run over the aggregated
+results and dow stores each figure they produce as a content-addressed artifact.
+dow ships no plotting library - you plug in your own plot functions.
+
+Each run is saved as a durable, git-tracked result bundle (aggregator values +
+figure references + provenance); list them with --list and print one with
+--show <id>, so a robustness check becomes a citable, reproducible object.
+
+@examples
+dow aggregate
+dow aggregate v1 v2 v3 --plot
+dow aggregate --tag seed
+dow aggregate --list
+dow aggregate --show a1

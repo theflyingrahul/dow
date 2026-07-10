@@ -148,6 +148,44 @@ pins a change to a single field also reports how far the coefficient moved. The
 returns alongside its text output; dow keeps it out of git (content-addressed
 under `.dow/artifacts/`) and rehydrates it on read.
 
+### Cohort aggregators (N-way)
+
+Some checks compare a whole **set** of versions at once - the agreement of a label
+across K seeds, K judges, or K prompt wordings (ICC, Fleiss/Gwet AC2, Krippendorff's
+alpha over K raters, with bootstrap CIs). Comparators see two versions; aggregators
+see the whole cohort. Plug your own in under `evaluation.aggregators`; dow ships none
+of the coefficients:
+
+```yaml
+evaluation:
+  aggregators:
+    - metrics.py:seed_reliability   # ICC / AC2 / alpha over K seeds
+```
+
+An aggregator receives a `CohortContext` whose `members` is one context per version
+(each with its `payload`), aligns them by your own key, and returns the same shapes as
+a comparator. `dow aggregate` selects the cohort (an explicit version list, every
+version carrying a `--tag`, or all of them), runs the aggregators, and saves a durable,
+git-tracked bundle under `.dow/aggregations/`; `dow aggregate --list` and `--show <id>`
+retrieve past results.
+
+### Pluggable plots
+
+dow can render results to figures without shipping a plotting library: reference your
+own plot functions under `evaluation.plots`. Each receives a `PlotContext` (the analysis
+`results` plus an `out_dir` to write into) and returns the figure path(s):
+
+```yaml
+evaluation:
+  plots:
+    - plots.py:forest_plot          # your matplotlib (or any) code; dow ships none
+```
+
+Run `dow compare --plot` or `dow aggregate --plot`. dow copies each figure into the
+content-addressed artifact store (`.dow/artifacts/`, git-ignored) and records its hash
+and size; for an aggregation the figure is referenced from the persisted bundle, so it
+stays regenerable while the bytes stay out of git.
+
 ## MCP server
 
 Prefer to drive dow from an AI agent? `dow-mcp` exposes the core workbench over

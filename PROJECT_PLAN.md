@@ -116,6 +116,10 @@ evaluation:
     - evals.py:mentions_order_id
   comparators:                      # your own paired baseline-vs-variant metrics (path.py:function)
     - metrics.py:weighted_kappa
+  aggregators:                      # your own N-way metrics over a COHORT of versions (path.py:function)
+    - metrics.py:seed_reliability
+  plots:                            # your own plot functions; dow stores the figures (ships no matplotlib)
+    - plots.py:forest_plot
   thresholds:
     drift_warn: 0.15
     drift_fail: 0.40
@@ -129,7 +133,7 @@ Tracked fields, by category:
 - Model identity: the provider, the model name, a pinned model version or snapshot, and, for open-weight models, the model commit or revision hash. Floating aliases are prohibited because they change silently.
 - Operation and params (optional): a label for a non-generation perturbation (relabel, recluster, subsample, ...) and a free-form parameter block; both are fingerprinted and attributed like any other field, so a re-analysis is a versioned single-field change.
 - Sampling and decoding: temperature, top_p, maximum tokens, penalties, stop sequences, and the random seed.
-- Evaluation configuration: the embedding model, the sample count, the verdict thresholds, the single-version evaluators (`metrics`), and the paired comparators (`comparators`).
+- Evaluation configuration: the embedding model, the sample count, the verdict thresholds, the single-version evaluators (`metrics`), the paired comparators (`comparators`), the N-way cohort aggregators (`aggregators`), and the plot functions (`plots`).
 - Inputs: the test input or inputs — a literal string, or an `{artifact: path, sha256: ...}` reference whose on-disk content hash is captured for reproducibility.
 
 ### What is tracked
@@ -304,6 +308,32 @@ Comparators are computed on demand by `dow compare` and `dow explain` (not persi
 
 Structured, per-item data is carried by an optional **`payload`**: whatever a `python` provider returns alongside its text output (for example an aligned vector of ordinal labels) is exposed to evaluators as `ctx.payload` and to comparators as `cctx.a.payload` / `cctx.b.payload`. Because such data can be large and would bloat the version history, dow does not inline it in the version JSON: it is written once, keyed by its content hash, under `.dow/artifacts/` (git-ignored) and referenced from the record. It is rehydrated transparently on read and verified against its hash, so the git-tracked history stays light while every record remains reproducible. A non-generation perturbation can additionally be labelled with a fingerprinted `operation` and free-form `params` block (see Section 4), so a re-analysis (relabel, recluster, subsample) is versioned and attributed like any other single-field change.
 
+### N-way cohort aggregators (reliability over a set of versions)
+
+A comparator sees exactly two versions, but many robustness questions are inherently **N-way**: the agreement of an ordinal label across *K* random seeds, *K* judge models, *K* prompt wordings, or *K* clustering permutations (ICC, Fleiss's kappa, Gwet AC2, Krippendorff's alpha over K raters, each with a question-level bootstrap CI). These consume a whole **cohort** at once, not a pair. **Aggregators** are the many-version generalization of comparators, plugged in under `evaluation.aggregators`; as always, **dow ships none of the coefficients**:
+
+```yaml
+evaluation:
+  aggregators:
+    - metrics.py:seed_reliability     # ICC / AC2 / Krippendorff alpha over K seeds
+```
+
+An aggregator receives a `CohortContext` whose `members` is one `EvalContext` per version — each with its per-item `payload` — so the project aligns them by its own key (for example a question id) and computes the coefficient over all K raters, doing any clustered bootstrap itself. It returns the same structured shapes as a comparator (a number, an `{estimate, ci_low, ci_high}` band, or a table of rows), stored verbatim.
+
+`dow aggregate` selects the cohort — an explicit list of versions, every version carrying a `--tag`, or the whole history — runs the aggregators, and **persists the result as a durable, git-tracked bundle** under `.dow/aggregations/` (recording the member ids, their fingerprints, the coefficient values, any figures, and a timestamp). A robustness check therefore becomes a citable, reproducible object; `dow aggregate --list` and `--show <id>` retrieve past bundles. Aggregator failures are captured and reported, never fatal.
+
+### Pluggable plots (figures as content-addressed artifacts)
+
+dow can turn any of these results into a figure without shipping a plotting library. The project references its own plot functions under `evaluation.plots`; each receives a `PlotContext` carrying the analysis `results` to render and a dow-provided `out_dir` to write into, and returns the path(s) of the figure file(s) it produced:
+
+```yaml
+evaluation:
+  plots:
+    - plots.py:forest_plot            # your matplotlib (or any) code; dow ships none
+```
+
+Run with `dow compare --plot` or `dow aggregate --plot`. dow copies each produced file into the content-addressed artifact store (`.dow/artifacts/`, git-ignored, like payloads), records its `sha256`, byte size, and original filename in the result, and — for an aggregation — references it from the persisted bundle so the figure is integrity-checkable and regenerable. The figure bytes stay out of the git history; only the light reference travels with the commit. A plot failure is captured and reported, never fatal.
+
 ---
 
 ## 7. Command-Line Interface
@@ -320,6 +350,7 @@ The commands are task-oriented, not version-control plumbing. Versioning is auto
 | `dow inspect [version]` | Show one version's specification, runtime capture, and outputs |
 | `dow tag <label> [version]` | Tag a version with a free-form label: good, golden, baseline, bad, ... |
 | `dow eval [version]` | Run custom evaluators; compare scores against the previous and last-good versions |
+| `dow aggregate [VERSIONS]` | Aggregate reliability metrics over a cohort of versions (N-way); persist a git-tracked bundle, optionally with figures (`--plot`) |
 | `dow tree` | Visualize evolution: a vertical trunk with branches, as a terminal tree or an exported Mermaid `gitGraph` |
 
 Versions are referred to by simple names (`v1`, `v2`), the shortcuts `last` and `prev`, or any label applied with `dow tag` (for example `good`). They form a tree: every commit records its parent, and `dow commit --from v1` starts a new branch from an earlier version. Command output is rendered in the terminal.
@@ -474,6 +505,7 @@ The tool runs entirely offline by default (mock provider and a built-in hashing 
 - [ ] `dow explain` attributes a behavioral change to the configuration difference and flags confounded comparisons.
 - [ ] `dow tree` visualizes the version evolution (terminal tree and exported Mermaid), with branches via `dow commit --from`.
 - [ ] Users can plug in custom evaluators (`evaluation.metrics`); `dow eval` runs them lazily, saves the scores with the version, and compares against the previous and last-good versions.
+- [ ] Users can plug in paired comparators (`evaluation.comparators`), N-way cohort aggregators (`evaluation.aggregators`) surfaced by `dow aggregate` as durable git-tracked bundles, and plot functions (`evaluation.plots`) whose figures dow stores as content-addressed artifacts — dow shipping none of the coefficients or plotting code.
 - [ ] `dow tag` applies free-form labels (good, golden, baseline, ...) that are usable as version references.
 - [ ] The tool runs end to end offline through mock or local mode.
 - [ ] A rehearsed two-minute demonstration that lands the closing statement.

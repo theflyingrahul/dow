@@ -10,7 +10,12 @@ reliability coefficients that need both versions aligned per item through their
 captured payload), their results are shown beneath the built-in signals. dow
 ships none of these coefficients; it only wires in the callables you reference.
 
+With --plot, the spec's evaluation.plots functions render the comparison and dow
+stores the figures they produce as content-addressed artifacts (dow ships no
+plotting library). To aggregate more than two versions at once, use 'dow aggregate'.
+
 @examples
 dow compare
 dow compare v1 v3
 dow compare good last
+dow compare v1 v2 --plot

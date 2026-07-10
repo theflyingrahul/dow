@@ -51,6 +51,46 @@ class CompareContext:
     b_id: str = ""
 
 
+@dataclass
+class CohortContext:
+    """Everything an N-way aggregator needs about a *cohort* of captured versions.
+
+    An aggregator is the many-version generalization of a comparator: where a
+    comparator receives exactly two versions, an aggregator receives a whole
+    cohort - K seeds, judges, prompt wordings, or clustering permutations -
+    aligned per item through each member's captured ``payload``. That is what a
+    reliability coefficient over K raters (ICC, Fleiss kappa, Gwet AC2,
+    Krippendorff's alpha, ...) consumes. By convention the first member is the
+    baseline. dow ships none of the coefficients: the project supplies them as
+    ``aggregators``.
+    """
+
+    members: list  # list[EvalContext], one per cohort version, order preserved
+    ids: list = field(default_factory=list)     # version ids, parallel to members
+    labels: list = field(default_factory=list)  # optional human labels (tags/params)
+    name: str = ""
+
+
+@dataclass
+class PlotContext:
+    """Everything a project plot callable needs to render one figure.
+
+    dow ships no plotting library; the project plugs in its own plot functions.
+    ``results`` is the analysis dict to render (a comparator or aggregator
+    output, shaped by the project). ``out_dir`` is a dow-provided directory to
+    write figure file(s) into; the callable returns the path(s) it wrote and dow
+    stores each as a content-addressed artifact. ``records``/``ids`` expose the
+    raw captured versions for plots that need the underlying payloads.
+    """
+
+    results: dict
+    out_dir: str
+    kind: str = ""   # "compare" | "aggregate" | "eval"
+    name: str = ""
+    ids: list = field(default_factory=list)
+    records: list = field(default_factory=list)
+
+
 def _load_callable(ref: str, base_dir: Path):
     if ":" not in ref:
         raise ValueError(
@@ -109,6 +149,54 @@ def run_comparators(refs, cctx: CompareContext, base_dir) -> dict:
         else:
             results[name] = _clean_value(out)
     return results
+
+
+def run_aggregators(refs, cctx: CohortContext, base_dir) -> dict:
+    """Run each referenced N-way aggregator over a cohort of versions.
+
+    Where a comparator sees two versions, an aggregator sees a whole *cohort*
+    (K seeds / judges / prompt wordings / permutations) aligned per item through
+    each member's captured ``payload`` - exactly what a reliability coefficient
+    over K raters (ICC, Fleiss kappa, Gwet AC2, Krippendorff's alpha, ...) needs.
+    Returns are structured and stored verbatim (a number, an
+    ``{estimate, ci_low, ci_high}`` band, or a bag/table of named results); dow
+    ships none of the coefficients.
+    """
+    base_dir = Path(base_dir)
+    results: dict = {}
+    for ref in refs or []:
+        name, fn = _load_callable(ref, base_dir)
+        out = fn(cctx)
+        if isinstance(out, dict) and not _is_metric_value(out):
+            for key, value in out.items():
+                results[str(key)] = _clean_value(value)
+        else:
+            results[name] = _clean_value(out)
+    return results
+
+
+def run_plotters(refs, pctx: PlotContext, base_dir) -> list:
+    """Run each referenced plot callable and collect the figure files it wrote.
+
+    dow ships no plotting library. The project references its own plot functions
+    (``path.py:function``); each receives a :class:`PlotContext` carrying the
+    analysis ``results`` to render and a dow-provided ``out_dir`` to write into,
+    and returns the path(s) of the figure file(s) it produced. dow then stores
+    each produced file as a content-addressed artifact. A path may be returned as
+    a str/Path or a list thereof; ``None`` means the plotter produced nothing.
+    """
+    base_dir = Path(base_dir)
+    produced: list = []
+    for ref in refs or []:
+        _name, fn = _load_callable(ref, base_dir)
+        out = fn(pctx)
+        if out is None:
+            continue
+        items = out if isinstance(out, (list, tuple)) else [out]
+        for item in items:
+            if item:
+                produced.append(str(item))
+    return produced
 
 
 def _is_metric_value(d: dict) -> bool:

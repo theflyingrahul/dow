@@ -11,7 +11,10 @@ last-good versions, iterate, and run 'dow commit' when you are happy with it.
 
 Evaluators score one version on its own. Their paired counterpart -
 evaluation.comparators, which score one version against another (agreement or
-reliability coefficients) - run instead on 'dow compare' and 'dow explain'.
+reliability coefficients) - run instead on 'dow compare' and 'dow explain'. For
+agreement over a whole cohort of versions at once (K seeds/judges/wordings), use
+evaluation.aggregators with 'dow aggregate'. Plot functions listed under
+evaluation.plots turn any of these results into figures dow stores as artifacts.
 
 @examples
 dow eval
