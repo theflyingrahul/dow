@@ -12,7 +12,7 @@ prompt:
   few_shot: []
 
 model:
-  provider: mock                    # mock | openai | ollama
+  provider: mock                    # mock | openai | ollama | vllm
   name: mock-summarizer
   version: mock-2024-07-18          # pinned snapshot, never a floating alias
   revision: null                    # model commit or revision hash for open-weight models

@@ -40,10 +40,12 @@ prompt:
   few_shot: []
 
 model:
-  provider: mock                    # mock | openai | ollama
-  name: mock-summarizer
+  provider: mock                    # mock | openai | ollama | vllm
+  name: mock-summarizer             # for vllm: the served model name (--served-model-name)
   version: mock-2024-07-18          # pinned snapshot, never a floating alias
   revision: null                    # model commit or revision hash for open-weight models
+  # vllm talks to an OpenAI-compatible server: set VLLM_BASE_URL for a remote host
+  # (default http://localhost:8000/v1) and VLLM_API_KEY if it was started with --api-key.
 
 sampling:
   temperature: 0.2

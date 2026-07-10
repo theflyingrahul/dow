@@ -52,6 +52,12 @@ applied with dow_tag (e.g. "good"). dow_commit(from_version=...) branches from a
 earlier version. If a project has a single spec, the `spec` argument can be
 omitted. Change one spec field per commit so dow_explain can attribute drift to a
 single cause.
+
+Backends: the spec's model.provider selects where generations come from - "mock"
+(default; fully offline and deterministic), "openai", "ollama", or "vllm" (a vLLM
+OpenAI-compatible server, local or remote; set VLLM_BASE_URL, default
+http://localhost:8000/v1, and VLLM_API_KEY if required). Change it with
+dow_write_spec like any other field; everything runs offline on "mock".
 """
 
 mcp = FastMCP("dow", instructions=INSTRUCTIONS)

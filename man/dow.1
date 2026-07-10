@@ -346,5 +346,25 @@ Write the page to a man directory so 'man dow' works.
 Target man1 directory (default: ~/.local/share/man/man1).
 .RE
 .PP
+.SH BACKENDS
+The model sits behind one provider interface, chosen by \fBmodel.provider\fR in the spec. dow runs fully offline by default.
+.RS
+.TP
+.B mock
+Deterministic offline mock (default); no network or API keys.
+.TP
+.B python
+A local Python callable (path.py:function); version your own generator offline.
+.TP
+.B openai
+OpenAI hosted models; set OPENAI_API_KEY.
+.TP
+.B ollama
+Local Ollama runtime at http://localhost:11434.
+.TP
+.B vllm
+A vLLM OpenAI-compatible server, local or remote. Set VLLM_BASE_URL (default http://localhost:8000/v1) and, if the server requires it, VLLM_API_KEY.
+.RE
+.PP
 .SH SEE ALSO
 Run \fBdow help\fR or \fBdow help \fICOMMAND\fR for interactive help.
