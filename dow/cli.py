@@ -10,14 +10,11 @@ from typing import Optional
 
 import typer
 
-from . import report
+from . import report, service
 from .dashboard import WEB_DIR, dashboard_specs, resolve_spec, serve, write_payload
-from .embeddings import get_embedder
 from .evaluators import evaluate_version
-from .metrics import output_difference, semantic_drift, stability
-from .metrics import verdict as compute_verdict
 from .runner import execute
-from .spec import InferenceSpec, flatten
+from .spec import InferenceSpec
 from .store import Store
 
 app = typer.Typer(
@@ -29,72 +26,6 @@ app = typer.Typer(
 )
 
 SPECS_DIR = "specs"
-EXAMPLE_NAME = "summarization"
-
-EXAMPLE_SPEC = """# specs/summarization.yaml - a fully versioned inference specification
-spec_version: 1
-name: summarization
-task: Summarize a customer support ticket
-
-prompt:
-  system: You are an assistant that writes concise summaries.
-  template: |
-    Summarize the following ticket:
-
-    {input}
-  few_shot: []
-
-model:
-  provider: mock                    # mock | openai | ollama
-  name: mock-summarizer
-  version: mock-2024-07-18          # pinned snapshot, never a floating alias
-  revision: null                    # model commit or revision hash for open-weight models
-
-sampling:
-  temperature: 0.2
-  top_p: 1.0
-  max_tokens: 256
-  frequency_penalty: 0.0
-  presence_penalty: 0.0
-  stop: null
-  seed: 7
-
-evaluation:
-  embedding_model: hashing-256      # offline default; swap for a sentence-transformers id
-  samples: 5
-  metrics:                          # your own evaluators: path.py:function (see evals.py)
-    - evals.py:avg_word_count
-    - evals.py:mentions_order_id
-  thresholds:
-    drift_warn: 0.15
-    drift_fail: 0.40
-
-inputs:
-  - "My order #123 never arrived and support has not replied in a week."
-"""
-
-EXAMPLE_EVALS = r'''"""Example custom evaluators for dow.
-
-Each evaluator receives an EvalContext and returns a score (float) or a dict of
-named scores. Reference them from a spec under evaluation.metrics, e.g.
-"evals.py:avg_word_count".
-"""
-import re
-
-
-def avg_word_count(ctx):
-    """Average number of words per output."""
-    counts = [len(o.split()) for o in ctx.outputs]
-    return sum(counts) / len(counts) if counts else 0.0
-
-
-def mentions_order_id(ctx):
-    """Fraction of outputs that mention a numeric order id."""
-    if not ctx.outputs:
-        return 0.0
-    hits = sum(1 for o in ctx.outputs if re.search(r"\b\d{2,}\b", o))
-    return hits / len(ctx.outputs)
-'''
 
 
 # --------------------------------------------------------------------------- #
@@ -115,13 +46,6 @@ def _spec_path(name: str) -> Path:
 def _spec_files() -> list:
     d = _specs_dir()
     return sorted(d.glob("*.yaml")) if d.is_dir() else []
-
-
-def _render_example_spec(name: str) -> str:
-    """Starter spec text with its header and name field set to the chosen name."""
-    return EXAMPLE_SPEC.replace(
-        f"# specs/{EXAMPLE_NAME}.yaml", f"# specs/{name}.yaml", 1
-    ).replace(f"name: {EXAMPLE_NAME}", f"name: {name}", 1)
 
 
 def _find_spec_name(name: Optional[str]) -> Optional[str]:
@@ -150,55 +74,29 @@ def _resolve(store: Store, name: str, ref: str) -> str:
         raise typer.BadParameter(str(exc))
 
 
-def _config_diff(a_cfg: dict, b_cfg: dict) -> dict:
-    fa, fb = flatten(a_cfg), flatten(b_cfg)
-    diff = {}
-    for k in sorted(set(fa) | set(fb)):
-        if fa.get(k) != fb.get(k):
-            diff[k] = (fa.get(k), fb.get(k))
-    return diff
-
-
 def _resolve_pair(store: Store, name: str, a: Optional[str], b: Optional[str]):
-    versions = store.list_versions(name)
-    if a is None and b is None:
-        if len(versions) < 2:
-            raise typer.BadParameter(
-                "Need at least two versions. Change your spec and run 'dow commit' again."
-            )
-        return versions[-2]["id"], versions[-1]["id"]
-    if b is None:
-        return _resolve(store, name, a), versions[-1]["id"]
-    return _resolve(store, name, a), _resolve(store, name, b)
+    try:
+        return service.resolve_pair(store, name, a, b)
+    except service.DowError as exc:
+        raise typer.BadParameter(str(exc))
 
 
 def _compare(store: Store, name: str, a_id: str, b_id: str):
-    a = store.get_record(name, a_id)
-    b = store.get_record(name, b_id)
-    a_out = [s["output"] for s in a["samples"]]
-    b_out = [s["output"] for s in b["samples"]]
-    embedder = get_embedder(b["config"]["evaluation"]["embedding_model"])
-    a_emb, b_emb = embedder.embed(a_out), embedder.embed(b_out)
-    drift = semantic_drift(a_emb, b_emb)
-    stab_a, stab_b = stability(a_emb), stability(b_emb)
-    outdiff = output_difference(a_out, b_out)
-    cfg_diff = _config_diff(a["config"], b["config"])
-    thresholds = b["config"]["evaluation"]["thresholds"]
-    label = compute_verdict(drift, stab_a, stab_b, thresholds)
-    return cfg_diff, outdiff, drift, stab_a, stab_b, label, thresholds
+    r = service.compare_records(store, name, a_id, b_id)
+    return (
+        r["config_diff"],
+        r["output_difference"],
+        r["semantic_drift"],
+        r["stability_a"],
+        r["stability_b"],
+        r["verdict"],
+        r["thresholds"],
+    )
 
 
 def _ensure_eval(store: Store, name: str, vid: str, rerun: bool = False):
     """Return the version's eval result, running and saving it if not present."""
-    rec = store.get_record(name, vid)
-    refs = rec.get("config", {}).get("evaluation", {}).get("metrics", [])
-    if not refs:
-        return None
-    if not rerun and isinstance(rec.get("eval"), dict) and rec["eval"].get("metrics"):
-        return rec["eval"]
-    result = evaluate_version(rec, _root())
-    store.save_eval(name, vid, result)
-    return result
+    return service.ensure_eval(store, name, vid, _root(), rerun=rerun)
 
 
 def _auto_eval(store: Store, name: str, vid: str) -> None:
@@ -250,23 +148,16 @@ def _doc(name: str) -> dict:
 @app.command(**_doc("init"))
 def init(
     name: str = typer.Argument(
-        EXAMPLE_NAME, help="Name for the new spec (creates specs/<name>.yaml)."
+        service.EXAMPLE_NAME, help="Name for the new spec (creates specs/<name>.yaml)."
     ),
 ) -> None:
     """Scaffold a starter spec (and evals.py) so you can start versioning."""
-    stem = Path(name).stem  # tolerate 'specs/foo.yaml' or 'foo.yaml'
-    path = _spec_path(stem)
-    if path.exists():
-        raise typer.BadParameter(
-            f"Spec already exists: specs/{stem}.yaml (edit it, then 'dow commit')."
-        )
-    _specs_dir().mkdir(parents=True, exist_ok=True)
-    path.write_text(_render_example_spec(stem), encoding="utf-8")
-    created = [f"specs/{stem}.yaml"]
-    evals_path = _root() / "evals.py"
-    if not evals_path.exists():
-        evals_path.write_text(EXAMPLE_EVALS, encoding="utf-8")
-        created.append("evals.py")
+    try:
+        result = service.init_spec(_root(), name)
+    except service.DowError as exc:
+        raise typer.BadParameter(str(exc))
+    stem = result["spec"]
+    created = result["created"]
     report.console.print(
         f"[green]Created[/green] {', '.join(created)}.\n"
         f"Edit [bold]specs/{stem}.yaml[/bold], then run [bold]dow commit[/bold] to capture v1."
@@ -435,31 +326,7 @@ def evaluate(
 
 
 def _build_tree(store: Store, name: str) -> dict:
-    versions = store.list_versions(name)
-    if not versions:
-        return {"versions": [], "stab": {}, "parent_of": {}, "edges": {}}
-    records = {v["id"]: store.get_record(name, v["id"]) for v in versions}
-    last_id = versions[-1]["id"]
-    embedder = get_embedder(records[last_id]["config"]["evaluation"]["embedding_model"])
-    emb, stab = {}, {}
-    for v in versions:
-        outs = [s["output"] for s in records[v["id"]]["samples"]]
-        e = embedder.embed(outs)
-        emb[v["id"]] = e
-        stab[v["id"]] = stability(e)
-    order = [v["id"] for v in versions]
-    parent_of, edges = {}, {}
-    for i, v in enumerate(versions):
-        vid = v["id"]
-        p = v["parent"] if "parent" in v else (order[i - 1] if i > 0 else None)
-        parent_of[vid] = p
-        if p and p in emb:
-            drift = semantic_drift(emb[p], emb[vid])
-            cfg = _config_diff(records[p]["config"], records[vid]["config"])
-            thresholds = records[vid]["config"]["evaluation"]["thresholds"]
-            label = compute_verdict(drift, stab[p], stab[vid], thresholds)
-            edges[vid] = {"drift": drift, "ds": stab[vid] - stab[p], "cfg": cfg, "verdict": label}
-    return {"versions": versions, "stab": stab, "parent_of": parent_of, "edges": edges}
+    return service.build_tree_data(store, name)
 
 
 @app.command(**_doc("tree"))
