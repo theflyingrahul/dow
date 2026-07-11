@@ -4,6 +4,23 @@ All notable changes to dow are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/), and dow adheres to
 [Semantic Versioning](https://semver.org/).
 
+## [2.0.4] - 2026-07-11
+
+### Security
+- **Store write methods now reject a path-traversal spec name / version id /
+  aggregation id.** `Store.add_version`, `Store.save_eval`, and
+  `Store.save_aggregation` build paths under `.dow/versions/<name>/…` and
+  `.dow/aggregations/<name>/…`, but — unlike the already-guarded read methods
+  (`get_record`, `get_aggregation`) — they did not validate the component, so a
+  name containing `..`, a path separator, an absolute prefix, or a NUL byte
+  could write a record or aggregation bundle **outside** the `.dow` store. The
+  shipped CLI/MCP surface was not directly reachable (the service layer reduces
+  a spec name to `Path(name).stem` before it reaches the store), so this is a
+  defense-in-depth fix, not a live exploit — but the store is dow's documented
+  security boundary (the same one the read guards protect) and now self-defends
+  on every write via `_safe_component`. Regression tests added
+  (`tests/test_security.py::test_store_writes_block_traversal_spec_name`).
+
 ## [2.0.3] - 2026-07-11
 
 ### Added

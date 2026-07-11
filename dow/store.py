@@ -233,6 +233,7 @@ class Store:
     def add_version(
         self, spec_name: str, record: dict, message: str = "", parent: Optional[str] = None
     ) -> str:
+        spec_name = _safe_component(spec_name, "spec name")
         index = self._load_index()
         entry = index["specs"].setdefault(spec_name, {"counter": 0, "versions": []})
         if parent is None and entry["versions"]:
@@ -325,6 +326,8 @@ class Store:
 
     # -- evaluation results ---------------------------------------------- #
     def save_eval(self, spec_name: str, version_id: str, eval_result: dict) -> None:
+        spec_name = _safe_component(spec_name, "spec name")
+        version_id = _safe_component(version_id, "version id")
         path = self.dir / "versions" / spec_name / f"{version_id}.json"
         record = json.loads(path.read_text(encoding="utf-8"))
         record["eval"] = eval_result
@@ -349,6 +352,7 @@ class Store:
         is dow's git-native equivalent of a project's result bundle (JSON + plot),
         making a robustness check a durable, citable, reproducible object.
         """
+        spec_name = _safe_component(spec_name, "spec name")
         index = self._load_index()
         entry = index["specs"].setdefault(spec_name, {"counter": 0, "versions": []})
         entry["agg_counter"] = entry.get("agg_counter", 0) + 1
