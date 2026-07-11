@@ -107,8 +107,48 @@ def test_get_record_blocks_traversal(tmp_path):
             st.get_record("s", bad)
 
 
-# --- hardening: poisoned artifact reference --------------------------------- #
+# --- Alert 1 sibling: traversal on the WRITE path --------------------------- #
 
+_RECORD = {
+    "spec_name": "s", "spec_fingerprint": "fp", "run_id": "2024-01-01T00:00:00Z",
+    "input": "x", "config": {"evaluation": {}}, "runtime": {},
+    "samples": [{"output": "o"}], "metrics": {}, "payload": None,
+}
+
+
+@pytest.mark.parametrize("bad", ["../../../../tmp/escape", "..", "a/b", "a\\b", "/abs", ""])
+def test_store_writes_block_traversal_spec_name(tmp_path, bad):
+    """A traversal *spec name* must never let a write escape the ``.dow`` store.
+
+    Reads are already guarded; the write methods (add_version / save_eval /
+    save_aggregation) build ``.dow/versions/<name>/…`` and ``.dow/aggregations/
+    <name>/…`` paths too, so an unsanitized name here would write files anywhere
+    on disk. Through the service layer ``find_spec_name`` stems the name, but the
+    store is the documented security boundary and must self-defend.
+    """
+    st = Store(tmp_path)
+    st.ensure()
+    before = {p.resolve() for p in tmp_path.rglob("*")}
+
+    with pytest.raises(ValueError):
+        st.add_version(bad, dict(_RECORD))
+    with pytest.raises(ValueError):
+        st.save_aggregation(bad, {"members": ["v1"], "aggregators": {"x": 1.0}})
+
+    # A legit version to target save_eval's version-id sanitization too.
+    vid = st.add_version("s", dict(_RECORD))
+    with pytest.raises(ValueError):
+        st.save_eval(bad, vid, {"metrics": {}})
+    with pytest.raises(ValueError):
+        st.save_eval("s", bad, {"metrics": {}})
+
+    # Nothing was created outside the store (only the legit "s" version dir).
+    after = {p.resolve() for p in tmp_path.rglob("*")}
+    escaped = {p for p in (after - before) if ".dow" not in p.parts}
+    assert not escaped, f"write escaped the store: {escaped}"
+
+
+# --- hardening: poisoned artifact reference --------------------------------- #
 def test_internalize_refuses_traversal_artifact_ref(tmp_path):
     st = Store(tmp_path)
     st.ensure()
