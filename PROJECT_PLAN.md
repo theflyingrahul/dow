@@ -4,6 +4,15 @@
 
 Goal: Deliver a working command-line tool in under one day that versions the full inference specification, executes it locally, and quantifies how AI behavior differs between two versions while attributing each change to its cause.
 
+> **Status (2026-07): shipped — v2.2.0.** The MVP below is complete and every
+> stretch item that survived contact (suite-level aggregation, multi-version drift
+> trend, and the non-zero-exit regression gate) shipped as first-class commands
+> (`dow suite`, `dow trend`, `dow compare --fail-on-regression`/`--fail-on-drift`,
+> `dow eval --min/--max`). The Definition of Done in §14 is checked off. The tool is
+> published to PyPI and pinned by downstream projects (e.g. the thesis
+> `robustness_checks/` battery). See [`CHANGELOG.md`](CHANGELOG.md) for the release
+> history; this plan is retained as the original design record.
+
 ---
 
 ## 1. Scope
@@ -533,14 +542,14 @@ The tool runs entirely offline by default (mock provider and a built-in hashing 
 
 ## 14. Definition of Done (MVP)
 
-- [ ] A specification captures the prompt, the model identity and version, the sampling settings, and the evaluation configuration.
-- [ ] Execution records runtime metadata (model version and revision, system fingerprint, seed, library versions) and saves the version durably in the Git-backed store.
-- [ ] `dow compare` reports the configuration difference, output difference, semantic drift, stability, and a verdict.
-- [ ] `dow explain` attributes a behavioral change to the configuration difference and flags confounded comparisons.
-- [ ] `dow tree` visualizes the version evolution (terminal tree and exported Mermaid), with branches via `dow commit --from`.
-- [ ] Users can plug in custom evaluators (`evaluation.metrics`); `dow eval` runs them lazily, saves the scores with the version, and compares against the previous and last-good versions.
-- [ ] Users can plug in paired comparators (`evaluation.comparators`), N-way cohort aggregators (`evaluation.aggregators`) surfaced by `dow aggregate` as durable git-tracked bundles, cross-spec suites (`specs/<name>.suite.yaml`) surfaced by `dow suite`, and plot functions (`evaluation.plots`) whose figures dow stores as content-addressed artifacts — dow shipping none of the coefficients or plotting code.
-- [ ] `dow trend` follows a metric across a spec's whole version history (tree-aware, built-in stability and project scores, deltas vs. previous and baseline); `dow compare --fail-on-regression`/`--fail-on-drift` and `dow eval --metric --min/--max` gate sweeps/CI with a non-zero exit code (the metric gate failing closed), computing no new numbers.
-- [ ] `dow tag` applies free-form labels (good, golden, baseline, ...) that are usable as version references.
-- [ ] The tool runs end to end offline through mock or local mode.
-- [ ] A rehearsed two-minute demonstration that lands the closing statement.
+- [x] A specification captures the prompt, the model identity and version, the sampling settings, and the evaluation configuration.
+- [x] Execution records runtime metadata (model version and revision, system fingerprint, seed, library versions) and saves the version durably in the Git-backed store.
+- [x] `dow compare` reports the configuration difference, output difference, semantic drift, stability, and a verdict.
+- [x] `dow explain` attributes a behavioral change to the configuration difference and flags confounded comparisons.
+- [x] `dow tree` visualizes the version evolution (terminal tree and exported Mermaid), with branches via `dow commit --from`.
+- [x] Users can plug in custom evaluators (`evaluation.metrics`); `dow eval` runs them lazily, saves the scores with the version, and compares against the previous and last-good versions.
+- [x] Users can plug in paired comparators (`evaluation.comparators`), N-way cohort aggregators (`evaluation.aggregators`) surfaced by `dow aggregate` as durable git-tracked bundles, cross-spec suites (`specs/<name>.suite.yaml`) surfaced by `dow suite`, and plot functions (`evaluation.plots`) whose figures dow stores as content-addressed artifacts — dow shipping none of the coefficients or plotting code.
+- [x] `dow trend` follows a metric across a spec's whole version history (tree-aware, built-in stability and project scores, deltas vs. previous and baseline); `dow compare --fail-on-regression`/`--fail-on-drift` and `dow eval --metric --min/--max` gate sweeps/CI with a non-zero exit code (the metric gate failing closed), computing no new numbers.
+- [x] `dow tag` applies free-form labels (good, golden, baseline, ...) that are usable as version references.
+- [x] The tool runs end to end offline through mock or local mode.
+- [x] A rehearsed two-minute demonstration that lands the closing statement.
