@@ -6,7 +6,7 @@ Full documentation, logo, design notes, demo, and issue tracker live in the
 source repository: https://github.com/theflyingrahul/dow
 
 Version the complete inference specification (prompt, model identity and version,
-sampling settings, evaluation configuration), execute it, and measure semantic
+sampling settings, evaluation configuration), execute it, and measure behavioral
 drift, stability, and regressions between versions - with causal attribution.
 Versioning is automatic and Git is a hidden storage backend; you never run git
 commands.

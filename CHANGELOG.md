@@ -4,7 +4,27 @@ All notable changes to dow are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/), and dow adheres to
 [Semantic Versioning](https://semver.org/).
 
-## [2.2.0] - 2026-07-11
+## [Unreleased]
+
+### Changed
+- **The built-in drift signal is now labelled honestly for its embedder.** dow's
+  drift is `1 - cosine` of two versions' mean output embeddings, so *what* it
+  measures depends on the embedder: the default offline `hashing-256` embedder is
+  bag-of-words, making the number **lexical** (word overlap), not semantic; only a
+  configured `sentence-transformers`/OpenAI `embedding_model` makes it genuinely
+  **semantic**. Previously every surface said "semantic drift" regardless. Now:
+  - `dow compare` / `dow explain` render the row as **"Lexical drift"** or
+    **"Semantic drift"** to match the active embedder (and never over-claim).
+  - `dow compare`, `dow explain`, and `dow tree` gain a **`driftKind`** field in
+    their JSON/MCP output — `"lexical"`, `"semantic"`, or `null` (when
+    `embedding_model: none`).
+  - Command help, the man page, and the MCP tool descriptions now describe the
+    signal as lexical-by-default / semantic-with-a-real-model.
+
+  This is additive and backward compatible: the numeric value and its existing
+  `semanticDrift` JSON key are unchanged, so existing consumers keep working.
+
+
 
 ### Added
 - **Longitudinal trend (`dow trend`) — follow a metric across a spec's *whole*

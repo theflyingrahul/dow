@@ -199,7 +199,7 @@ def compare(
     r = service.compare_records(store, name, a_id, b_id)
     report.print_compare(
         name, a_id, b_id, r["config_diff"], r["output_difference"], r["semantic_drift"],
-        r["stability_a"], r["stability_b"], r["verdict"], r["thresholds"],
+        r["stability_a"], r["stability_b"], r["verdict"], r["thresholds"], r.get("drift_kind"),
     )
     report.print_comparators(r.get("comparators", {}), r.get("comparator_refs", []), r.get("comparator_error"))
     if plot:
@@ -314,7 +314,7 @@ def explain(
     confounded = len(cfg_diff) > 1
     report.print_explain(
         name, a_id, b_id, cfg_diff, confounded, r["verdict"],
-        r["semantic_drift"], r.get("stability_change"),
+        r["semantic_drift"], r.get("stability_change"), r.get("drift_kind"),
     )
     report.print_comparators(r.get("comparators", {}), r.get("comparator_refs", []), r.get("comparator_error"))
 

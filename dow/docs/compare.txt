@@ -1,9 +1,10 @@
 Compare two versions: outputs, drift, stability, and a verdict.
 
 Reports which configuration fields differ, how much the outputs changed, the
-semantic drift between the two versions, the stability of each, and an overall
-verdict against the spec's thresholds. With no arguments, compares the previous
-version against the latest.
+built-in drift between the two versions (lexical with the default hashing
+embedder; semantic when embedding_model names a sentence-transformers or OpenAI
+model), the stability of each, and an overall verdict against the spec's
+thresholds. With no arguments, compares the previous version against the latest.
 
 If the spec lists evaluation.comparators (your own paired metrics - agreement or
 reliability coefficients that need both versions aligned per item through their

@@ -427,8 +427,10 @@ def compare_records(store: Store, name: str, a_id: str, b_id: str) -> dict:
         outdiff = output_difference(a_out, b_out)
         label = compute_verdict(drift, stab_a, stab_b, thresholds)
         stab_change = stab_b - stab_a
+        drift_kind = getattr(embedder, "kind", "semantic")
     else:
         drift = stab_a = stab_b = outdiff = label = stab_change = None
+        drift_kind = None
     comp = run_comparisons(store, a, b, a_id, b_id, cfg_diff)
     return {
         "config_diff": cfg_diff,
@@ -439,6 +441,7 @@ def compare_records(store: Store, name: str, a_id: str, b_id: str) -> dict:
         "stability_change": stab_change,
         "verdict": label,
         "drift_enabled": bool(getattr(embedder, "enabled", True)),
+        "drift_kind": drift_kind,
         "embedding_model": embedder.name,
         "thresholds": thresholds,
         "comparators": comp["comparators"],
@@ -801,7 +804,9 @@ def build_tree_data(store: Store, name: str) -> dict:
             else:
                 drift = label = ds = None
             edges[vid] = {"drift": drift, "ds": ds, "cfg": cfg, "verdict": label}
-    return {"versions": versions, "stab": stab, "parent_of": parent_of, "edges": edges}
+    drift_kind = getattr(embedder, "kind", "semantic") if enabled else None
+    return {"versions": versions, "stab": stab, "parent_of": parent_of,
+            "edges": edges, "drift_kind": drift_kind}
 
 
 def ensure_eval(store: Store, name: str, vid: str, root, rerun: bool = False):
@@ -943,6 +948,7 @@ def compare(root, name: Optional[str] = None, a: Optional[str] = None, b: Option
         "stabilityA": _round(r["stability_a"]),
         "stabilityB": _round(r["stability_b"]),
         "driftEnabled": r.get("drift_enabled", True),
+        "driftKind": r.get("drift_kind"),
         "embeddingModel": r.get("embedding_model"),
         "thresholds": _thresholds_json(r["thresholds"]),
         "verdict": r["verdict"],
@@ -992,6 +998,7 @@ def explain(root, name: Optional[str] = None, a: Optional[str] = None, b: Option
         "semanticDrift": _round(r["semantic_drift"]),
         "stabilityChange": _round(r.get("stability_change")),
         "driftEnabled": r.get("drift_enabled", True),
+        "driftKind": r.get("drift_kind"),
         "verdict": r["verdict"],
         "note": note,
         "comparators": r.get("comparators", {}),
@@ -1284,7 +1291,7 @@ def tree(root, name: Optional[str] = None, mermaid: bool = False) -> dict:
                 "verdict": edge["verdict"],
             }
         nodes.append(node)
-    result = {"spec": name, "nodes": nodes}
+    result = {"spec": name, "nodes": nodes, "driftKind": data.get("drift_kind")}
     if mermaid:
         from . import report  # lazy: keeps this module free of the rendering layer
 

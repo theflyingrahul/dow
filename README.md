@@ -6,7 +6,7 @@
 
 Track how your AI's behavior changes across versions. Version the complete
 inference specification (prompt, model identity and version, sampling settings,
-evaluation configuration), execute it, and measure semantic drift, stability, and
+evaluation configuration), execute it, and measure behavioral drift, stability, and
 regressions between versions - with causal attribution. Versioning is automatic
 and Git is a hidden storage backend; you never run git commands.
 

@@ -105,6 +105,7 @@ def test_non_text_outputs_are_opaque_but_still_tracked(tmp_path):
     c = service.compare(root, name="t", a="v1", b="v2")
     assert c["driftEnabled"] is False
     assert c["embeddingModel"] == "none"
+    assert c["driftKind"] is None
     assert c["semanticDrift"] is None
     assert c["stabilityA"] is None and c["stabilityB"] is None
     assert c["outputDifference"] is None
@@ -127,6 +128,7 @@ def test_non_text_outputs_are_opaque_but_still_tracked(tmp_path):
 
     t = service.tree(root, name="t", mermaid=True)
     assert len(t["nodes"]) == 2
+    assert t["driftKind"] is None
     assert t["nodes"][0]["stability"] is None
     assert t["nodes"][1]["edge"]["semanticDrift"] is None
     assert "gitGraph" in t["mermaid"]
