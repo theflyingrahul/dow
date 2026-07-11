@@ -17,7 +17,7 @@ from dow import mcp_server as M  # noqa: E402
 
 EXPECTED_TOOLS = {
     "dow_list_specs", "dow_init", "dow_read_spec", "dow_write_spec", "dow_commit",
-    "dow_compare", "dow_explain", "dow_eval", "dow_aggregate", "dow_history",
+    "dow_compare", "dow_explain", "dow_eval", "dow_aggregate", "dow_suite", "dow_history",
     "dow_inspect", "dow_tag", "dow_tree", "dow_docs",
 }
 

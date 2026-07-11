@@ -326,6 +326,22 @@ An aggregator receives a `CohortContext` whose `members` is one `EvalContext` pe
 
 `dow aggregate` selects the cohort — an explicit list of versions, every version carrying a `--tag`, or the whole history — runs the aggregators, and **persists the result as a durable, git-tracked bundle** under `.dow/aggregations/` (recording the member ids, their fingerprints, the coefficient values, any figures, and a timestamp). A robustness check therefore becomes a citable, reproducible object; `dow aggregate --list` and `--show <id>` retrieve past bundles. Aggregator failures are captured and reported, never fatal.
 
+### Cross-spec suites (the matrix)
+
+`dow aggregate` operates within a **single** spec. A robustness sweep, though, is frequently a **matrix** — the same check run across several models, domains, or temperatures, where each cell of the matrix is its own spec. **`dow suite`** aggregates versions drawn from **several** specs at once, so the whole matrix collapses into one citable object. The participating specs and the project's own aggregators/plots are declared in a manifest, `specs/<name>.suite.yaml` (a distinct suffix that keeps suites out of the inference-spec code paths, so a manifest never leaks into `dow history` or single-spec resolution):
+
+```yaml
+# specs/robustness_matrix.suite.yaml
+name: robustness_matrix
+specs: [check_llama, check_qwen, check_mistral]   # specs to draw versions from
+select: all              # all | latest | <tag>
+evaluation:
+  aggregators: [suite_metrics.py:agg_matrix]      # your callables; dow ships none
+  plots: [suite_plots.py:plot_matrix]
+```
+
+Every member keeps its own captured `config`, and the `CohortContext` gains a parallel **`specs`** list naming each member's spec, so a suite aggregator can bucket by spec / model / domain / temperature. Member ids are composite `spec:version`. `select` chooses the cohort: `all` (every version of each listed spec — the full matrix), `latest` (each spec's newest version), or a tag name (each spec's versions carrying that tag; specs with no match are skipped, and an entirely empty selection is a clear error). Suite runs persist as durable, git-tracked bundles under `.dow/aggregations/_suites/<name>/` — a **separate namespace** from single-spec aggregations — and `dow suite --list`, `--show <id>`, and `--plot` mirror `dow aggregate`. The suite reuses the same aggregator/plot contract, so **dow still ships none of the coefficients or plotting code**.
+
 ### Pluggable plots (figures as content-addressed artifacts)
 
 dow can turn any of these results into a figure without shipping a plotting library. The project references its own plot functions under `evaluation.plots`; each receives a `PlotContext` carrying the analysis `results` to render and a dow-provided `out_dir` to write into, and returns the path(s) of the figure file(s) it produced:
@@ -355,6 +371,7 @@ The commands are task-oriented, not version-control plumbing. Versioning is auto
 | `dow tag <label> [version]` | Tag a version with a free-form label: good, golden, baseline, bad, ... |
 | `dow eval [version]` | Run custom evaluators; compare scores against the previous and last-good versions |
 | `dow aggregate [VERSIONS]` | Aggregate reliability metrics over a cohort of versions (N-way); persist a git-tracked bundle, optionally with figures (`--plot`) |
+| `dow suite [NAME]` | Aggregate versions across several specs (a cross-spec matrix declared in `specs/<name>.suite.yaml`); persist a git-tracked bundle, optionally with figures (`--plot`) |
 | `dow tree` | Visualize evolution: a vertical trunk with branches, as a terminal tree or an exported Mermaid `gitGraph` |
 
 Versions are referred to by simple names (`v1`, `v2`), the shortcuts `last` and `prev`, or any label applied with `dow tag` (for example `good`). They form a tree: every commit records its parent, and `dow commit --from v1` starts a new branch from an earlier version. Command output is rendered in the terminal.
@@ -410,7 +427,7 @@ The trunk `v1 -> v2` is the main line; `v3-branch` forks from v1 and continues t
 
 ### Programmatic and MCP surface
 
-The command line is one front end over a headless core (`dow/service.py`); an AI agent gets the same workflow over the Model Context Protocol. The `dow-mcp` server (install with the `mcp` extra) exposes fourteen tools mirroring the commands above - scaffold, read/write a spec, commit, compare, explain, eval, aggregate, tag, history, inspect, tree, and docs - plus read-only resources (`dow://overview`, `dow://docs/<command>`, `dow://specs`, `dow://spec/<name>`) an agent can attach as context. Because both surfaces call the same core, they never drift apart, and both are data-structure agnostic: when a spec sets `embedding_model: none`, the built-in drift, stability, and verdict come back null (`driftEnabled` is false) and the configuration diff plus the project's own metrics carry the analysis. dow itself still ships no metric, statistic, or plotting code.
+The command line is one front end over a headless core (`dow/service.py`); an AI agent gets the same workflow over the Model Context Protocol. The `dow-mcp` server (install with the `mcp` extra) exposes fifteen tools mirroring the commands above - scaffold, read/write a spec, commit, compare, explain, eval, aggregate, aggregate across specs (suite), tag, history, inspect, tree, and docs - plus read-only resources (`dow://overview`, `dow://docs/<command>`, `dow://specs`, `dow://spec/<name>`) an agent can attach as context. Because both surfaces call the same core, they never drift apart, and both are data-structure agnostic: when a spec sets `embedding_model: none`, the built-in drift, stability, and verdict come back null (`driftEnabled` is false) and the configuration diff plus the project's own metrics carry the analysis. dow itself still ships no metric, statistic, or plotting code.
 
 ---
 
@@ -513,7 +530,7 @@ The tool runs entirely offline by default (mock provider and a built-in hashing 
 - [ ] `dow explain` attributes a behavioral change to the configuration difference and flags confounded comparisons.
 - [ ] `dow tree` visualizes the version evolution (terminal tree and exported Mermaid), with branches via `dow commit --from`.
 - [ ] Users can plug in custom evaluators (`evaluation.metrics`); `dow eval` runs them lazily, saves the scores with the version, and compares against the previous and last-good versions.
-- [ ] Users can plug in paired comparators (`evaluation.comparators`), N-way cohort aggregators (`evaluation.aggregators`) surfaced by `dow aggregate` as durable git-tracked bundles, and plot functions (`evaluation.plots`) whose figures dow stores as content-addressed artifacts — dow shipping none of the coefficients or plotting code.
+- [ ] Users can plug in paired comparators (`evaluation.comparators`), N-way cohort aggregators (`evaluation.aggregators`) surfaced by `dow aggregate` as durable git-tracked bundles, cross-spec suites (`specs/<name>.suite.yaml`) surfaced by `dow suite`, and plot functions (`evaluation.plots`) whose figures dow stores as content-addressed artifacts — dow shipping none of the coefficients or plotting code.
 - [ ] `dow tag` applies free-form labels (good, golden, baseline, ...) that are usable as version references.
 - [ ] The tool runs end to end offline through mock or local mode.
 - [ ] A rehearsed two-minute demonstration that lands the closing statement.

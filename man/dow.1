@@ -1,4 +1,4 @@
-.TH DOW 1 "2026-07-11" "dow 2.0.4" "Drift Observation Workbench"
+.TH DOW 1 "2026-07-11" "dow 2.1.0" "Drift Observation Workbench"
 .SH NAME
 dow \- track how your AI's behavior changes across versions
 .SH SYNOPSIS
@@ -183,6 +183,71 @@ dow aggregate v1 v2 v3 \-\-plot
 dow aggregate \-\-tag seed
 dow aggregate \-\-list
 dow aggregate \-\-show a1
+.fi
+.RE
+.PP
+.SS suite
+.B dow suite [OPTIONS] [NAME]
+.PP
+Aggregate versions across several specs (a cross\-spec matrix).
+.PP
+Where 'dow aggregate' runs your N\-way aggregators over a cohort of versions within
+ONE spec, 'dow suite' runs them over versions drawn from SEVERAL specs \- the
+check x model x domain x temperature matrix. You declare the participating specs
+and the project's aggregators/plots in a manifest, specs/<name>.suite.yaml:
+.PP
+name: robustness_matrix
+  specs: [prompt_sensitivity, seed_sensitivity]
+  select: all            # all | latest | <tag>
+  evaluation:
+    aggregators: [suite_evals.py:agg_matrix]
+    plots: [suite_evals.py:plot_matrix]
+.PP
+Each member keeps its own captured config (so your aggregator can bucket by spec,
+model, domain, or temperature) and payload (aligned per item). Member ids are
+\&'spec:version'. Selection is 'all' (every version of each spec \- the full matrix),
+\&'latest' (each spec's latest), or a tag name (every version carrying it). Override
+per run with \-\-select. dow ships none of the coefficients or the plotting library;
+it only wires the members into the callables you list under evaluation.aggregators
+and evaluation.plots.
+.PP
+With \-\-plot, the suite's plot functions run over the aggregated results and dow
+stores each figure as a content\-addressed artifact. Each run is saved as a durable,
+git\-tracked suite bundle; list them with \-\-list and print one with \-\-show <id>, so
+a whole robustness matrix becomes a citable, reproducible object.
+.PP
+Arguments:
+.RS
+.TP
+.B NAME
+Suite manifest name (specs/<name>.suite.yaml).
+.RE
+.PP
+Options:
+.RS
+.TP
+.B \-\-select
+Override selection: all | latest | <tag>.
+.TP
+.B \-\-plot
+Also run the suite's plot functions and store the figures.
+.TP
+.B \-\-list
+List stored suite bundles instead of running one.
+.TP
+.B \-\-show
+Print a stored suite bundle by id (e.g. a1).
+.RE
+.PP
+Examples:
+.RS
+.nf
+dow suite robustness_matrix
+dow suite robustness_matrix \-\-plot
+dow suite robustness_matrix \-\-select latest
+dow suite robustness_matrix \-\-select golden
+dow suite robustness_matrix \-\-list
+dow suite robustness_matrix \-\-show a1
 .fi
 .RE
 .PP
@@ -457,3 +522,4 @@ A vLLM OpenAI-compatible server, local or remote. Set VLLM_BASE_URL (default htt
 .PP
 .SH SEE ALSO
 Run \fBdow help\fR or \fBdow help \fICOMMAND\fR for interactive help.
+

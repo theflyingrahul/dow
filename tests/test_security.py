@@ -148,6 +148,27 @@ def test_store_writes_block_traversal_spec_name(tmp_path, bad):
     assert not escaped, f"write escaped the store: {escaped}"
 
 
+@pytest.mark.parametrize("bad", ["../../../../tmp/escape", "..", "a/b", "a\\b", "/abs", ""])
+def test_store_writes_block_traversal_suite_name(tmp_path, bad):
+    """A traversal *suite name* must never let a suite bundle escape ``.dow``.
+
+    ``save_suite_aggregation``/``get_suite_aggregation`` build ``.dow/aggregations/
+    _suites/<name>/…`` paths; the store must self-defend on both write and read.
+    """
+    st = Store(tmp_path)
+    st.ensure()
+    before = {p.resolve() for p in tmp_path.rglob("*")}
+
+    with pytest.raises(ValueError):
+        st.save_suite_aggregation(bad, {"members": ["s:v1"], "aggregators": {"x": 1.0}})
+    with pytest.raises(ValueError):
+        st.get_suite_aggregation(bad, "a1")
+
+    after = {p.resolve() for p in tmp_path.rglob("*")}
+    escaped = {p for p in (after - before) if ".dow" not in p.parts}
+    assert not escaped, f"suite write escaped the store: {escaped}"
+
+
 # --- hardening: poisoned artifact reference --------------------------------- #
 def test_internalize_refuses_traversal_artifact_ref(tmp_path):
     st = Store(tmp_path)

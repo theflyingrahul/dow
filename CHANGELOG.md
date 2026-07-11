@@ -4,6 +4,47 @@ All notable changes to dow are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/), and dow adheres to
 [Semantic Versioning](https://semver.org/).
 
+## [2.1.0] - 2026-07-11
+
+### Added
+- **Cross-spec suites (`dow suite`) — aggregate versions across *several* specs
+  (the check × model × domain × temperature matrix).** `dow aggregate` runs a
+  project's N-way aggregators over a cohort within a *single* spec, but a
+  robustness sweep is often a matrix where each cell is its own spec. A suite is
+  declared in a manifest, `specs/<name>.suite.yaml`, listing the participating
+  `specs:` plus the project's own `evaluation.aggregators`/`plots`:
+
+  ```yaml
+  name: robustness_matrix
+  specs: [check_llama, check_qwen, check_mistral]
+  select: all            # all | latest | <tag>
+  evaluation:
+    aggregators: [suite_metrics.py:agg_matrix]
+    plots: [suite_plots.py:plot_matrix]
+  ```
+
+  `select` chooses the cohort: `all` (every version of each listed spec — the
+  full matrix), `latest` (each spec's newest version), or a tag name (each
+  spec's versions carrying that tag). Each member keeps its own captured config,
+  and the `CohortContext` gains a parallel `specs` list naming each member's
+  spec, so an aggregator can bucket by spec / model / domain / temperature.
+  Member ids are composite `spec:version`. Suite runs persist as durable,
+  git-tracked bundles under `.dow/aggregations/_suites/<name>/` — a **separate
+  namespace** from single-spec aggregations — so a manifest never leaks into
+  `dow history` or single-spec resolution. `dow suite --list`, `--show <id>`,
+  and `--plot` mirror `dow aggregate`. The `.suite.yaml` suffix keeps manifests
+  out of the inference-spec code paths (`spec_files` in both the service core and
+  the CLI now exclude it). dow still ships **none** of the coefficients or the
+  plotting library — the suite only wires in the project's callables.
+- **`dow_suite` MCP tool** (the server now exposes **15** tools), plus the
+  `suite` command in the generated man page and `dow help suite`.
+
+### Security
+- `Store.save_suite_aggregation` / `get_suite_aggregation` validate the suite
+  name (and aggregation id) with `_safe_component` on both the write and read
+  paths, matching the 2.0.4 store-write hardening; regression test added
+  (`tests/test_security.py::test_store_writes_block_traversal_suite_name`).
+
 ## [2.0.4] - 2026-07-11
 
 ### Security

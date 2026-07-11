@@ -26,6 +26,7 @@ from .spec import flatten
 STORE_DIR = ".dow"
 ARTIFACTS_DIR = "artifacts"
 AGGREGATIONS_DIR = "aggregations"
+SUITES_SUBDIR = "_suites"
 
 
 def _safe_component(value, kind: str) -> str:
@@ -429,6 +430,51 @@ class Store:
         path = self.dir / AGGREGATIONS_DIR / spec_name / f"{agg_id}.json"
         if not path.exists():
             raise FileNotFoundError(f"Unknown aggregation: {agg_id}")
+        return json.loads(path.read_text(encoding="utf-8"))
+
+    # ----------------------------------------------------------------- suites
+    # A suite aggregates versions drawn from *several* specs (the check x model x
+    # domain x temperature matrix). Its bundles live in a dedicated namespace so a
+    # suite never leaks into the spec index (find_spec_name/list_specs stay clean).
+    def save_suite_aggregation(self, suite_name: str, result: dict) -> str:
+        """Persist a cross-spec suite aggregation bundle under ``_suites/<name>``."""
+        suite_name = _safe_component(suite_name, "suite name")
+        index = self._load_index()
+        suites = index.setdefault("suites", {})
+        entry = suites.setdefault(suite_name, {"agg_counter": 0, "aggregations": []})
+        entry["agg_counter"] = entry.get("agg_counter", 0) + 1
+        agg_id = f"a{entry['agg_counter']}"
+        result = dict(result)
+        result["id"] = agg_id
+        adir = self.dir / AGGREGATIONS_DIR / SUITES_SUBDIR / suite_name
+        adir.mkdir(parents=True, exist_ok=True)
+        _atomic_write_text(
+            adir / f"{agg_id}.json",
+            json.dumps(result, indent=2, default=_json_default),
+        )
+        entry.setdefault("aggregations", []).append({
+            "id": agg_id,
+            "members": result.get("members", []),
+            "created": result.get("created"),
+            "figures": [f.get("filename") for f in result.get("figures", [])],
+        })
+        self._save_index(index)
+        self._commit(
+            f"Suite {suite_name} over {len(result.get('members', []))} versions ({agg_id})"
+        )
+        return agg_id
+
+    def list_suite_aggregations(self, suite_name: str) -> list:
+        if not self.index_path.exists():
+            return []
+        return self._load_index().get("suites", {}).get(suite_name, {}).get("aggregations", [])
+
+    def get_suite_aggregation(self, suite_name: str, agg_id: str) -> dict:
+        suite_name = _safe_component(suite_name, "suite name")
+        agg_id = _safe_component(agg_id, "aggregation id")
+        path = self.dir / AGGREGATIONS_DIR / SUITES_SUBDIR / suite_name / f"{agg_id}.json"
+        if not path.exists():
+            raise FileNotFoundError(f"Unknown suite aggregation: {agg_id}")
         return json.loads(path.read_text(encoding="utf-8"))
 
     def _commit(self, message: str) -> None:

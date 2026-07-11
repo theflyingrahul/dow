@@ -391,15 +391,26 @@ def print_figures(figs: dict) -> None:
 
 
 def print_aggregation(result: dict) -> None:
-    """Render a cohort-aggregation bundle: members, aggregator values, figures."""
+    """Render a cohort-aggregation bundle: members, aggregator values, figures.
+
+    Also renders cross-spec *suite* bundles (``kind == 'suite'``): the member ids
+    are ``spec:version`` and the header names the participating specs.
+    """
     name = result.get("spec", "")
     members = result.get("members", [])
     labels = result.get("labels", []) or members
     agg_id = result.get("id", "")
-    title = f"[bold]{name}[/bold]  N-way aggregation over {len(members)} versions"
+    is_suite = result.get("kind") == "suite"
+    if is_suite:
+        n_specs = len(result.get("specs", []))
+        title = (f"[bold]{name}[/bold]  suite aggregation over {len(members)} versions "
+                 f"across {n_specs} spec{'s' if n_specs != 1 else ''}")
+    else:
+        title = f"[bold]{name}[/bold]  N-way aggregation over {len(members)} versions"
     if agg_id:
         title += f"  ([cyan]{agg_id}[/cyan])"
-    console.print(Panel.fit(title, title="dow aggregate", border_style="blue"))
+    panel_title = "dow suite" if is_suite else "dow aggregate"
+    console.print(Panel.fit(title, title=panel_title, border_style="blue"))
     shown = ", ".join(
         vid + (f" ({lab})" if lab and lab != vid else "")
         for vid, lab in zip(members, labels)
