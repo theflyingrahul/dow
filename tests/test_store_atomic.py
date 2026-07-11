@@ -8,7 +8,6 @@ would fail its later sha256 check. Every durable write therefore goes through
 :func:`dow.store._atomic_write_bytes` (temp in the same dir -> fsync -> ``os.replace``).
 """
 import json
-import os
 
 from dow.store import Store, _atomic_write_bytes, _atomic_write_text
 
