@@ -78,7 +78,7 @@ in its own metrics (evaluation.metrics), paired comparators (evaluation.comparat
 N-way cohort aggregators (evaluation.aggregators), and plot functions
 (evaluation.plots); dow only wires them in and stores what they return - including
 opaque per-item payloads it persists faithfully whatever their in-memory type.
-dow's built-in text signals (semantic drift, stability, verdict) are a convenience
+dow's built-in text signals (drift, stability, verdict) are a convenience
 default for text outputs, not an assumption: set evaluation.embedding_model to
 "none" when a version's behavior is not free text, and dow_compare/dow_explain/
 dow_tree/dow_inspect/dow_history return those built-ins as null (driftEnabled is
@@ -200,7 +200,11 @@ def dow_compare(
     fail_on: Optional[str] = None,
     project_dir: Optional[str] = None,
 ) -> dict:
-    """Compare two versions: config diff, output difference, semantic drift, stability, verdict.
+    """Compare two versions: config diff, output difference, drift, stability, verdict.
+
+    The built-in drift is lexical by default (hashing embedder) and semantic when
+    the spec's embedding_model names a real model; the response's `driftKind`
+    field ("lexical"/"semantic"/null) says which.
 
     Defaults to the last two versions when `a`/`b` are omitted. Accepts version
     names (v1, v2), "last"/"prev", or tags (e.g. "good"). The verdict is one of
@@ -406,9 +410,10 @@ def dow_tree(
     """Return the version-evolution tree: nodes with stability and parent->child drift edges.
 
     Each edge carries the changed fields plus - when built-in text drift is on -
-    semantic drift, stability change, and a verdict; those three are null for
-    specs that set `embedding_model: none`. Set `mermaid=true` to also include a
-    Mermaid gitGraph string.
+    the drift value (lexical or semantic per the tree's `driftKind`), stability
+    change, and a verdict; those three are null for specs that set
+    `embedding_model: none`. Set `mermaid=true` to also include a Mermaid
+    gitGraph string.
     """
     return _run(service.tree, _root(project_dir), name=spec, mermaid=mermaid)
 

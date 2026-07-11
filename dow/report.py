@@ -7,6 +7,8 @@ from rich.panel import Panel
 from rich.table import Table
 from rich.tree import Tree
 
+from .embeddings import drift_label
+
 console = Console()
 
 _VERDICT_COLOR = {
@@ -117,7 +119,7 @@ def print_config_diff(config_diff: dict) -> None:
     console.print(table)
 
 
-def print_compare(name, a_id, b_id, config_diff, outdiff, drift, stab_a, stab_b, verdict_label, thresholds) -> None:
+def print_compare(name, a_id, b_id, config_diff, outdiff, drift, stab_a, stab_b, verdict_label, thresholds, drift_kind=None) -> None:
     console.print(
         Panel.fit(f"[bold]{name}[/bold]   {a_id}  vs  {b_id}", title="dow compare", border_style="magenta")
     )
@@ -134,7 +136,7 @@ def print_compare(name, a_id, b_id, config_diff, outdiff, drift, stab_a, stab_b,
     else:
         table.add_row("Output difference", _f(outdiff))
         table.add_row(
-            "Semantic drift",
+            drift_label(drift_kind),
             f"{_f(drift)}  (warn {thresholds.get('drift_warn', 0.15)}, "
             f"fail {thresholds.get('drift_fail', 0.40)})",
         )
@@ -181,7 +183,7 @@ def print_comparators(comparators: dict, refs=None, error=None) -> None:
     console.print(table)
 
 
-def print_explain(name, a_id, b_id, config_diff, confounded, verdict_label, drift, stab_change) -> None:
+def print_explain(name, a_id, b_id, config_diff, confounded, verdict_label, drift, stab_change, drift_kind=None) -> None:
     console.print(
         Panel.fit(
             f"[bold]{name}[/bold]   why did {a_id} -> {b_id} change?",
@@ -214,7 +216,7 @@ def print_explain(name, a_id, b_id, config_diff, confounded, verdict_label, drif
     else:
         color = _VERDICT_COLOR.get(verdict_label, "white")
         console.print(
-            f"[bold]Effect:[/bold] semantic drift {_f(drift)}, stability change "
+            f"[bold]Effect:[/bold] {drift_label(drift_kind, capitalized=False)} {_f(drift)}, stability change "
             f"{_f(stab_change, '{:+.3f}')}  ->  [{color}]{verdict_label}[/{color}]"
         )
 

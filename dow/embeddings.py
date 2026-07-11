@@ -10,6 +10,22 @@ _WORD = re.compile(r"[a-z0-9]+")
 
 _EMBEDDING_OFF = {"", "none", "off", "null", "false", "no", "0"}
 
+_DRIFT_LABEL = {"lexical": "Lexical drift", "semantic": "Semantic drift"}
+
+
+def drift_label(kind, *, capitalized: bool = True) -> str:
+    """Honest human label for the built-in drift signal, keyed on the embedder.
+
+    The built-in drift is ``1 - cosine`` of the two versions' mean output
+    embeddings, so *what* it measures depends entirely on the embedder: the
+    default :class:`HashingEmbedder` is bag-of-words, so the number is **lexical**
+    (word overlap), not semantic; a sentence-transformers / OpenAI model makes it
+    genuinely **semantic**. Callers pass ``embedder.kind`` so the label never
+    over-claims. Unknown/absent kinds fall back to a neutral ``"Drift"``.
+    """
+    label = _DRIFT_LABEL.get(kind, "Drift")
+    return label if capitalized else label[0].lower() + label[1:]
+
 
 def embedding_disabled(name) -> bool:
     """True when a spec opts out of dow's built-in text-embedding signals.
@@ -29,6 +45,7 @@ class NullEmbedder:
 
     name = "none"
     enabled = False
+    kind = "none"
 
     def embed(self, texts):
         import numpy as np
@@ -42,6 +59,8 @@ class HashingEmbedder:
     Captures lexical overlap, which is enough to demonstrate drift and stability
     fully offline. Swap in ``sentence-transformers`` for true semantic distance.
     """
+
+    kind = "lexical"
 
     def __init__(self, dim: int = 256):
         self.dim = dim
@@ -60,6 +79,8 @@ class HashingEmbedder:
 
 
 class SentenceTransformerEmbedder:
+    kind = "semantic"
+
     def __init__(self, model_name: str):
         from sentence_transformers import SentenceTransformer  # lazy import
 
@@ -73,6 +94,8 @@ class SentenceTransformerEmbedder:
 
 
 class OpenAIEmbedder:
+    kind = "semantic"
+
     def __init__(self, model_name: str):
         from openai import OpenAI  # lazy import
 

@@ -23,7 +23,13 @@ def stability(embs) -> float:
 
 
 def semantic_drift(a_embs, b_embs) -> float:
-    """1 - cosine between the mean embedding of each version's outputs."""
+    """1 - cosine between the mean embedding of each version's outputs.
+
+    What this measures depends on the embedder that produced the vectors: with the
+    default hashing (bag-of-words) embedder it is *lexical* drift; with a
+    sentence-transformers / OpenAI model it is genuinely *semantic*. Callers label
+    it via ``embeddings.drift_label(embedder.kind)`` so the surfaced name is honest.
+    """
     a_mean = np.mean(a_embs, axis=0)
     b_mean = np.mean(b_embs, axis=0)
     return float(1.0 - cosine(a_mean, b_mean))
