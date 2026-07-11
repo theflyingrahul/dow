@@ -1,4 +1,4 @@
-.TH DOW 1 "2026-07-11" "dow 2.1.0" "Drift Observation Workbench"
+.TH DOW 1 "2026-07-11" "dow 2.2.0" "Drift Observation Workbench"
 .SH NAME
 dow \- track how your AI's behavior changes across versions
 .SH SYNOPSIS
@@ -95,7 +95,13 @@ configuration difference and your own comparators carry the comparison instead.
 .PP
 With \-\-plot, the spec's evaluation.plots functions render the comparison and dow
 stores the figures they produce as content\-addressed artifacts (dow ships no
-plotting library). To aggregate more than two versions at once, use 'dow aggregate'.
+plotting library). To aggregate more than two versions at once, use 'dow aggregate';
+to follow a metric across the whole history, use 'dow trend'.
+.PP
+For sweeps and CI, \-\-fail\-on\-regression exits non\-zero when the verdict is a likely
+regression, and \-\-fail\-on\-drift trips on behavior drift or worse. With
+embedding_model 'none' the built\-in verdict is null and never trips \- gate on a
+project metric with 'dow eval \-\-metric NAME \-\-min/\-\-max' instead.
 .PP
 Arguments:
 .RS
@@ -115,6 +121,12 @@ Options:
 .TP
 .B \-\-plot
 Also run the spec's plot functions and store the figures.
+.TP
+.B \-\-fail\-on\-regression
+Exit non\-zero if the verdict is a likely regression (for sweeps/CI).
+.TP
+.B \-\-fail\-on\-drift
+Exit non\-zero if the verdict is behavior drift or worse (stricter gate).
 .RE
 .PP
 Examples:
@@ -124,6 +136,7 @@ dow compare
 dow compare v1 v3
 dow compare good last
 dow compare v1 v2 \-\-plot
+dow compare good last \-\-fail\-on\-regression
 .fi
 .RE
 .PP
@@ -248,6 +261,50 @@ dow suite robustness_matrix \-\-select latest
 dow suite robustness_matrix \-\-select golden
 dow suite robustness_matrix \-\-list
 dow suite robustness_matrix \-\-show a1
+.fi
+.RE
+.PP
+.SS trend
+.B dow trend [OPTIONS]
+.PP
+Trend a metric across a spec's whole version history (tree\-aware).
+.PP
+Where 'dow compare' contrasts exactly two versions, 'dow trend' follows a metric
+across ALL versions in commit order, so a slow drift over many iterations \- not
+just the last hop \- is visible. It reports every version's value together with the
+change since the previous version and since the baseline (v1), and labels each hop
+as a baseline, a same\-config re\-run, or a config change (the same tree awareness as
+\&'dow history').
+.PP
+Two kinds of metric are trended: the built\-in text stability (when the spec embeds
+output text) and your own evaluator scores saved under evaluation.metrics. With no
+\-\-metric, every numeric metric found is shown; pass \-\-metric NAME to focus on one.
+dow computes no new numbers here \- it only lines up the ones already recorded.
+.PP
+With \-\-plot, the spec's evaluation.plots functions receive the trend series (kind
+\&'trend') and dow stores the figures they produce as content\-addressed artifacts
+(dow ships no plotting library).
+.PP
+Options:
+.RS
+.TP
+.B \-\-metric, \-m
+Metric to trend (default: every numeric metric).
+.TP
+.B \-\-spec, \-s
+(no description)
+.TP
+.B \-\-plot
+Also run the spec's plot functions and store the figures.
+.RE
+.PP
+Examples:
+.RS
+.nf
+dow trend
+dow trend \-\-metric stability
+dow trend \-m accuracy \-\-plot
+dow trend \-\-spec prompt_sensitivity \-m krippendorff_alpha
 .fi
 .RE
 .PP
@@ -402,6 +459,10 @@ agreement over a whole cohort of versions at once (K seeds/judges/wordings), use
 evaluation.aggregators with 'dow aggregate'. Plot functions listed under
 evaluation.plots turn any of these results into figures dow stores as artifacts.
 .PP
+For sweeps and CI, gate on a score: \-\-metric NAME with \-\-min and/or \-\-max exits
+non\-zero when that metric is out of range (or missing). This works with \-\-draft too,
+so a sweep can reject a bad working spec before committing it.
+.PP
 Arguments:
 .RS
 .TP
@@ -423,6 +484,15 @@ Tag that marks the known\-good baseline.
 .TP
 .B \-\-spec, \-s
 (no description)
+.TP
+.B \-\-metric, \-m
+Metric to gate on with \-\-min/\-\-max (for sweeps/CI).
+.TP
+.B \-\-min
+Fail (exit non\-zero) if \-\-metric is below this value.
+.TP
+.B \-\-max
+Fail (exit non\-zero) if \-\-metric is above this value.
 .RE
 .PP
 Examples:
@@ -432,6 +502,7 @@ dow eval
 dow eval \-\-draft
 dow eval v2 \-\-rerun
 dow eval \-\-good\-tag golden
+dow eval \-\-metric accuracy \-\-min 0.8
 .fi
 .RE
 .PP

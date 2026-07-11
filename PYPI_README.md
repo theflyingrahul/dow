@@ -185,6 +185,27 @@ matrix), `latest` (each spec's newest version), or a tag name. Runs persist as d
 git-tracked suite bundles, separate from single-spec aggregations, so they never leak
 into `dow history`; `dow suite --list`, `--show <id>`, and `--plot` work as for aggregate.
 
+### Trend and the regression gate
+
+`dow compare` contrasts two versions; `dow trend` follows a metric across the **whole**
+history so a slow drift over many iterations is visible. It lines up each version's value
+with its change since the previous version and since the baseline, labelling each hop
+`baseline` / `same-config` / `config-changed`. Both the built-in text `stability` and your
+own `evaluation.metrics` scores are trended (`--metric` focuses on one; `--plot` hands the
+series to `evaluation.plots`). For sweeps and CI, turn a comparison or evaluation into an
+exit code:
+
+```console
+$ dow compare --fail-on-regression   # exit 1 if the verdict is a likely regression
+$ dow compare --fail-on-drift        # stricter: trip on behavior drift or worse
+$ dow eval --metric accuracy --min 0.8   # exit 1 if the score is out of range
+```
+
+The metric gate **fails closed** — a missing or non-numeric value where a bound is set is
+a breach. With `embedding_model: none` the built-in verdict is null and never trips; gate
+on a project metric instead. dow computes no new numbers — the gate only interprets the
+verdict or score already produced.
+
 ### Pluggable plots
 
 dow can render results to figures without shipping a plotting library: reference your
@@ -197,7 +218,8 @@ evaluation:
     - plots.py:forest_plot          # your matplotlib (or any) code; dow ships none
 ```
 
-Run `dow compare --plot`, `dow aggregate --plot`, or `dow suite --plot`. dow copies each
+Run `dow compare --plot`, `dow aggregate --plot`, `dow suite --plot`, or `dow trend
+--plot`. dow copies each
 figure into the content-addressed artifact store (`.dow/artifacts/`, git-ignored) and
 records its hash and size; for an aggregation or suite the figure is referenced from the
 persisted bundle, so it stays regenerable while the bytes stay out of git.
@@ -249,14 +271,16 @@ should operate on:
 }
 ```
 
-The 15 tools mirror the CLI: `dow_list_specs`, `dow_init`, `dow_read_spec`,
+The 16 tools mirror the CLI: `dow_list_specs`, `dow_init`, `dow_read_spec`,
 `dow_write_spec`, `dow_commit`, `dow_compare`, `dow_explain`, `dow_eval`,
-`dow_aggregate`, `dow_suite`, `dow_history`, `dow_inspect`, `dow_tag`, `dow_tree`,
-and `dow_docs`. They return structured JSON (config diffs, metrics, comparator and
-aggregator results, the version tree, and Mermaid - plus, for text outputs, drift
-scores and verdicts), so a client can run the full edit, commit, compare loop.
-The server also exposes read-only resources an MCP client can attach as context:
-`dow://overview`, `dow://docs/<command>`, `dow://specs`, and `dow://spec/<name>`.
+`dow_aggregate`, `dow_suite`, `dow_trend`, `dow_history`, `dow_inspect`, `dow_tag`,
+`dow_tree`, and `dow_docs`. They return structured JSON (config diffs, metrics,
+comparator and aggregator results, trend series, the version tree, and Mermaid -
+plus, for text outputs, drift scores and verdicts), so a client can run the full
+edit, commit, compare loop. `dow_compare` also takes `fail_on` for a structured
+regression-gate decision. The server also exposes read-only resources an MCP client
+can attach as context: `dow://overview`, `dow://docs/<command>`, `dow://specs`, and
+`dow://spec/<name>`.
 
 ## Documentation and the manual page
 

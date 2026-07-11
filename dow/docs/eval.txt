@@ -16,8 +16,13 @@ agreement over a whole cohort of versions at once (K seeds/judges/wordings), use
 evaluation.aggregators with 'dow aggregate'. Plot functions listed under
 evaluation.plots turn any of these results into figures dow stores as artifacts.
 
+For sweeps and CI, gate on a score: --metric NAME with --min and/or --max exits
+non-zero when that metric is out of range (or missing). This works with --draft too,
+so a sweep can reject a bad working spec before committing it.
+
 @examples
 dow eval
 dow eval --draft
 dow eval v2 --rerun
 dow eval --good-tag golden
+dow eval --metric accuracy --min 0.8

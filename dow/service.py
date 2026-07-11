@@ -832,6 +832,56 @@ def _thresholds_json(thresholds: dict) -> dict:
     }
 
 
+# --------------------------------------------------------------------------- #
+# regression gate - a pure decision the CLI turns into a process exit code so a
+# sweep or CI job fails fast on a regression. dow supplies the built-in text
+# verdict; the project supplies any metric threshold. No new numbers are computed.
+# --------------------------------------------------------------------------- #
+_REGRESSION_VERDICTS = {"Likely Regression"}
+_DRIFT_VERDICTS = {"Likely Regression", "Behavior Drift"}
+
+
+def verdict_gate(verdict: Optional[str], level: str = "regression") -> dict:
+    """Decide whether a built-in text-drift verdict trips the regression gate.
+
+    ``level`` is ``regression`` (only a "Likely Regression" trips) or ``drift``
+    (either "Likely Regression" or "Behavior Drift" trips). A null verdict - a
+    spec with ``embedding_model: none`` - never trips: there is no built-in text
+    signal, so gate on a project metric with :func:`threshold_gate` instead.
+    """
+    level = (level or "regression").strip().lower()
+    trip = _DRIFT_VERDICTS if level == "drift" else _REGRESSION_VERDICTS
+    breached = verdict in trip
+    reason = f"built-in verdict is '{verdict}'" if breached else None
+    if verdict is None:
+        reason = "built-in text drift is off (embedding_model: none); gate on a project metric instead"
+    return {"mode": f"verdict:{level}", "verdict": verdict, "breached": breached, "reason": reason}
+
+
+def threshold_gate(value, minimum=None, maximum=None, metric: Optional[str] = None) -> dict:
+    """Decide whether a metric ``value`` breaches a min/max threshold.
+
+    Fails **closed**: if a threshold is set but the value is missing or non-numeric,
+    that is a breach - a CI gate must not silently pass when the metric it guards
+    has vanished. With neither bound set the gate never trips.
+    """
+    gate = {"mode": "threshold", "metric": metric, "value": value,
+            "min": minimum, "max": maximum, "breached": False, "reason": None}
+    if minimum is None and maximum is None:
+        return gate
+    if not isinstance(value, (int, float)) or isinstance(value, bool):
+        gate["breached"] = True
+        gate["reason"] = f"metric '{metric}' is missing or non-numeric"
+        return gate
+    if minimum is not None and value < minimum:
+        gate["breached"] = True
+        gate["reason"] = f"{metric or 'value'}={value:g} is below the minimum {float(minimum):g}"
+    elif maximum is not None and value > maximum:
+        gate["breached"] = True
+        gate["reason"] = f"{metric or 'value'}={value:g} is above the maximum {float(maximum):g}"
+    return gate
+
+
 def commit(root, name: Optional[str] = None, message: Optional[str] = None, from_version: Optional[str] = None) -> dict:
     """Run the spec and capture its behavior as a new version."""
     root = Path(root)
@@ -872,8 +922,12 @@ def commit(root, name: Optional[str] = None, message: Optional[str] = None, from
 
 
 def compare(root, name: Optional[str] = None, a: Optional[str] = None, b: Optional[str] = None,
-            plot: bool = False) -> dict:
-    """Compare two versions: config diff, output difference, drift, stability, verdict."""
+            plot: bool = False, fail_on: Optional[str] = None) -> dict:
+    """Compare two versions: config diff, output difference, drift, stability, verdict.
+
+    When ``fail_on`` is ``regression`` or ``drift``, the result gains a ``gate``
+    decision (:func:`verdict_gate`) a caller can turn into a non-zero exit code.
+    """
     root = Path(root)
     name = need_spec(root, name)
     store = Store(root)
@@ -896,6 +950,8 @@ def compare(root, name: Optional[str] = None, a: Optional[str] = None, b: Option
         "comparatorRefs": r.get("comparator_refs", []),
         "comparatorError": r.get("comparator_error"),
     }
+    if fail_on:
+        out["gate"] = verdict_gate(r["verdict"], fail_on)
     if plot:
         a_rec, b_rec = store.get_record(name, a_id), store.get_record(name, b_id)
         plot_refs = b_rec.get("config", {}).get("evaluation", {}).get("plots", []) or []
@@ -981,6 +1037,92 @@ def history(root, name: Optional[str] = None) -> dict:
         "workingFingerprint": work_fp,
         "workingDirty": dirty,
     }
+
+
+def _numeric_metrics(entry: dict) -> dict:
+    """The trackable numeric metrics of one version: the built-in ``stability``
+    plus the project's own evaluator scores. Non-numeric values are dropped."""
+    vals: dict = {}
+    stab = entry.get("stability")
+    if isinstance(stab, (int, float)) and not isinstance(stab, bool):
+        vals["stability"] = float(stab)
+    ev = entry.get("eval")
+    if isinstance(ev, dict):
+        source = ev.get("metrics") if isinstance(ev.get("metrics"), dict) else ev
+        for k, v in source.items():
+            if isinstance(v, (int, float)) and not isinstance(v, bool):
+                vals[k] = float(v)
+    return vals
+
+
+def trend(root, name: Optional[str] = None, metric: Optional[str] = None,
+          plot: bool = False) -> dict:
+    """Longitudinal view of a metric across a spec's whole version history.
+
+    Where ``compare`` contrasts exactly two versions, ``trend`` follows one (or
+    every) numeric metric across all N versions in commit order - the built-in
+    ``stability`` and the project's own evaluator scores - reporting each value
+    with its change vs. the previous version and vs. the baseline (v1). It is a
+    read-only report; dow computes no new numbers. With ``plot=True`` the spec's
+    ``evaluation.plots`` functions render the series (``kind="trend"``).
+    """
+    root = Path(root)
+    name = need_spec(root, name)
+    store = Store(root)
+    versions = store.list_versions(name)
+    if not versions:
+        raise DowError("No versions yet. Run 'dow commit' first.")
+
+    rows, prev_fp, metric_keys = [], None, set()
+    for v in versions:
+        vals = _numeric_metrics(v)
+        metric_keys.update(vals)
+        if prev_fp is None:
+            change = "baseline"
+        elif v["fingerprint"] == prev_fp:
+            change = "same-config"
+        else:
+            change = "config-changed"
+        rows.append({"id": v["id"], "change": change,
+                     "tags": list(v.get("tags", []) or []), "values": vals})
+        prev_fp = v["fingerprint"]
+
+    if metric:
+        keys = [metric]
+    else:  # stability first (if present), then the project metrics alphabetically
+        keys = ([k for k in ("stability",) if k in metric_keys]
+                + sorted(k for k in metric_keys if k != "stability"))
+
+    series: dict = {}
+    for k in keys:
+        seq, baseline, last = [], None, None
+        for row in rows:
+            val = row["values"].get(k)
+            d_prev = (val - last) if (val is not None and last is not None) else None
+            d_base = (val - baseline) if (val is not None and baseline is not None) else None
+            seq.append({"id": row["id"], "change": row["change"], "value": val,
+                        "deltaPrev": _round(d_prev), "deltaBaseline": _round(d_base)})
+            if val is not None:
+                baseline = val if baseline is None else baseline
+                last = val
+        series[k] = seq
+
+    result = {
+        "spec": name,
+        "metrics": keys,
+        "count": len(versions),
+        "rows": rows,
+        "series": series,
+    }
+    if plot:
+        records = [store.get_record(name, v["id"]) for v in versions]
+        plot_refs = _cohort_analysis_refs(records, "plots")
+        figs = run_plots(store, plot_refs, result, records,
+                         [v["id"] for v in versions], root, "trend", name)
+        result["figures"] = figs["figures"]
+        result["plotRefs"] = figs["plotRefs"]
+        result["plotError"] = figs["plotError"]
+    return result
 
 
 def inspect(root, name: Optional[str] = None, version: Optional[str] = None) -> dict:

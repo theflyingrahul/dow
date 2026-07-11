@@ -1,0 +1,23 @@
+Trend a metric across a spec's whole version history (tree-aware).
+
+Where 'dow compare' contrasts exactly two versions, 'dow trend' follows a metric
+across ALL versions in commit order, so a slow drift over many iterations - not
+just the last hop - is visible. It reports every version's value together with the
+change since the previous version and since the baseline (v1), and labels each hop
+as a baseline, a same-config re-run, or a config change (the same tree awareness as
+'dow history').
+
+Two kinds of metric are trended: the built-in text stability (when the spec embeds
+output text) and your own evaluator scores saved under evaluation.metrics. With no
+--metric, every numeric metric found is shown; pass --metric NAME to focus on one.
+dow computes no new numbers here - it only lines up the ones already recorded.
+
+With --plot, the spec's evaluation.plots functions receive the trend series (kind
+'trend') and dow stores the figures they produce as content-addressed artifacts
+(dow ships no plotting library).
+
+@examples
+dow trend
+dow trend --metric stability
+dow trend -m accuracy --plot
+dow trend --spec prompt_sensitivity -m krippendorff_alpha
