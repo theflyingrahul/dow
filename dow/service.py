@@ -32,10 +32,11 @@ from .evaluators import (
 from .metrics import output_difference, semantic_drift, stability
 from .metrics import verdict as compute_verdict
 from .runner import execute
-from .spec import InferenceSpec, flatten
+from .spec import InferenceSpec, SuiteSpec, flatten
 from .store import Store
 
 SPECS_DIR = "specs"
+SUITE_SUFFIX = ".suite.yaml"
 DOCS_DIR = Path(__file__).parent / "docs"
 EXAMPLE_NAME = "summarization"
 
@@ -198,7 +199,45 @@ def spec_path(root, name: str) -> Path:
 
 def spec_files(root) -> list:
     d = specs_dir(root)
-    return sorted(d.glob("*.yaml")) if d.is_dir() else []
+    if not d.is_dir():
+        return []
+    return sorted(f for f in d.glob("*.yaml") if not f.name.endswith(SUITE_SUFFIX))
+
+
+def suite_path(root, name: str) -> Path:
+    return specs_dir(root) / f"{name}{SUITE_SUFFIX}"
+
+
+def suite_files(root) -> list:
+    d = specs_dir(root)
+    return sorted(d.glob(f"*{SUITE_SUFFIX}")) if d.is_dir() else []
+
+
+def find_suite_name(root, name: Optional[str]) -> Optional[str]:
+    if name:
+        stem = Path(name).name
+        for suffix in (SUITE_SUFFIX, ".yaml"):
+            if stem.endswith(suffix):
+                stem = stem[: -len(suffix)]
+                break
+        return stem
+    files = suite_files(root)
+    if len(files) == 1:
+        return files[0].name[: -len(SUITE_SUFFIX)]
+    if len(files) > 1:
+        names = ", ".join(f.name[: -len(SUITE_SUFFIX)] for f in files)
+        raise DowError(f"Multiple suites found; pass suite=NAME. Found: {names}")
+    return None
+
+
+def need_suite(root, name: Optional[str]) -> str:
+    resolved = find_suite_name(root, name)
+    if not resolved:
+        raise DowError(
+            "No suite manifest found. Create specs/<name>.suite.yaml "
+            "(listing the specs: and evaluation.aggregators: to aggregate across)."
+        )
+    return resolved
 
 
 def find_spec_name(root, name: Optional[str]) -> Optional[str]:
@@ -561,6 +600,169 @@ def get_aggregation(root, name: Optional[str] = None, agg_id: Optional[str] = No
         raise DowError("Provide an aggregation id (e.g. a1). List them with 'dow aggregate --list'.")
     try:
         return store.get_aggregation(name, agg_id)
+    except (FileNotFoundError, ValueError) as exc:
+        raise DowError(str(exc))
+
+
+# --------------------------------------------------------------------------- #
+# suites - aggregate versions across several specs (the check x model x domain
+# x temperature matrix). dow only wires the members in; the project supplies the
+# aggregators/plots, exactly as for a single-spec aggregate.
+# --------------------------------------------------------------------------- #
+def load_suite(root, name: Optional[str] = None) -> SuiteSpec:
+    """Load and validate a suite manifest (specs/<name>.suite.yaml)."""
+    root = Path(root)
+    name = need_suite(root, name)
+    path = suite_path(root, name)
+    if not path.exists():
+        raise DowError(f"Suite manifest not found: {SPECS_DIR}/{name}{SUITE_SUFFIX}")
+    suite = SuiteSpec.load(path)
+    if not suite.specs:
+        raise DowError(
+            f"Suite '{name}' lists no specs. Add a 'specs:' list of the inference "
+            "specs whose versions should be aggregated together."
+        )
+    if not suite.aggregators:
+        raise DowError(
+            f"Suite '{name}' declares no evaluation.aggregators. A suite aggregates "
+            "with the project's own callables; dow ships none."
+        )
+    return suite
+
+
+def list_suites(root) -> dict:
+    """Every suite manifest dow knows about, with member-spec counts."""
+    root = Path(root)
+    store = Store(root)
+    suites = []
+    for f in suite_files(root):
+        sname = f.name[: -len(SUITE_SUFFIX)]
+        try:
+            suite = SuiteSpec.load(f)
+        except Exception:  # noqa: BLE001 - a malformed manifest must not break listing
+            suites.append({"name": sname, "specs": [], "valid": False})
+            continue
+        members = 0
+        for spec in suite.specs:
+            members += len(store.list_versions(spec))
+        suites.append({
+            "name": sname,
+            "specs": list(suite.specs),
+            "select": suite.select,
+            "members": members,
+            "valid": True,
+        })
+    return {"root": str(root), "suites": suites}
+
+
+def select_suite(store: Store, suite: SuiteSpec, select: Optional[str] = None) -> list:
+    """Resolve the (spec, version-id) members a suite aggregation runs over.
+
+    ``select`` (overriding the manifest's): ``all`` = every version of each listed
+    spec (the full matrix), ``latest`` = each spec's latest version, else a tag name
+    = every version carrying that tag across the listed specs. Specs with no matching
+    versions are skipped; an entirely empty selection is an error.
+    """
+    mode = (select or suite.select or "all").strip()
+    members: list = []
+    for spec in suite.specs:
+        vids = [v["id"] for v in store.list_versions(spec)]
+        if not vids:
+            continue
+        if mode == "all":
+            chosen = vids
+        elif mode == "latest":
+            chosen = [vids[-1]]
+        else:  # a tag name
+            chosen = store.versions_with_tag(spec, mode)
+        for vid in chosen:
+            members.append((spec, vid))
+    if not members:
+        raise DowError(
+            f"Suite selection '{mode}' matched no versions across {suite.specs}. "
+            "Commit the member specs first (or check the tag)."
+        )
+    return members
+
+
+def aggregate_suite(root, name: Optional[str] = None, select: Optional[str] = None,
+                    plot: bool = False, save: bool = True) -> dict:
+    """Run the suite's project aggregators over versions drawn from several specs.
+
+    The cross-spec counterpart of :func:`aggregate`. Each member keeps its own
+    captured ``config`` (so the aggregator can bucket by spec / model / domain /
+    temperature) and ``payload`` (aligned per item). The structured result is saved
+    as a durable, git-tracked suite bundle. dow ships none of the coefficients or
+    the plotting library.
+    """
+    root = Path(root)
+    suite = load_suite(root, name)
+    store = Store(root)
+    store.ensure()
+    pairs = select_suite(store, suite, select)
+    specs = [s for s, _ in pairs]
+    records = [store.get_record(s, v) for s, v in pairs]
+    member_ids = [f"{s}:{v}" for s, v in pairs]
+    labels = []
+    for s, v in pairs:
+        tags = store.meta(s, v).get("tags", []) or []
+        labels.append(str(tags[0]) if tags else f"{s}:{v}")
+
+    agg_results: dict = {}
+    agg_error = None
+    try:
+        members = [build_eval_context(r) for r in records]
+        cctx = CohortContext(
+            members=members, ids=list(member_ids), labels=labels,
+            name=suite.name, specs=list(specs),
+        )
+        agg_results = run_aggregators(suite.aggregators, cctx, root)
+    except Exception as exc:  # noqa: BLE001 - an aggregator bug must not break the op
+        agg_error = str(exc)
+
+    figs = {"figures": [], "plotRefs": [], "plotError": None}
+    if plot:
+        figs = run_plots(store, suite.plots, agg_results, records, member_ids, root, "suite", suite.name)
+
+    result = {
+        "suite": suite.name,
+        "spec": suite.name,
+        "kind": "suite",
+        "specs": list(dict.fromkeys(specs)),
+        "select": (select or suite.select or "all"),
+        "members": list(member_ids),
+        "labels": labels,
+        "fingerprints": {f"{s}:{v}": store.meta(s, v).get("fingerprint") for s, v in pairs},
+        "created": _now_iso(),
+        "aggregators": agg_results,
+        "aggregatorRefs": list(suite.aggregators),
+        "aggregatorError": agg_error,
+        "figures": figs["figures"],
+        "plotRefs": figs["plotRefs"],
+        "plotError": figs["plotError"],
+    }
+    if save:
+        result["id"] = store.save_suite_aggregation(suite.name, result)
+    return result
+
+
+def suite_aggregations(root, name: Optional[str] = None) -> dict:
+    """List the persisted cross-spec suite bundles for a suite."""
+    root = Path(root)
+    name = need_suite(root, name)
+    store = Store(root)
+    return {"suite": name, "aggregations": store.list_suite_aggregations(name)}
+
+
+def get_suite_aggregation(root, name: Optional[str] = None, agg_id: Optional[str] = None) -> dict:
+    """Return one persisted suite bundle by id."""
+    root = Path(root)
+    name = need_suite(root, name)
+    store = Store(root)
+    if not agg_id:
+        raise DowError("Provide a suite aggregation id (e.g. a1). List them with 'dow suite --list'.")
+    try:
+        return store.get_suite_aggregation(name, agg_id)
     except (FileNotFoundError, ValueError) as exc:
         raise DowError(str(exc))
 

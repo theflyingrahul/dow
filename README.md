@@ -183,6 +183,33 @@ version carrying a `--tag`, or all of them), runs the aggregators, and saves a d
 git-tracked bundle under `.dow/aggregations/`; `dow aggregate --list` and `--show <id>`
 retrieve past results.
 
+### Cross-spec suites (the matrix)
+
+`dow aggregate` works within a **single** spec. A robustness sweep, though, often spans
+a whole **matrix** - the same check across several models, domains, or temperatures,
+where each cell is its own spec. `dow suite` aggregates versions drawn from **several**
+specs at once. You declare the participating specs and the project's own aggregators/
+plots in a manifest, `specs/<name>.suite.yaml`:
+
+```yaml
+# specs/robustness_matrix.suite.yaml
+name: robustness_matrix
+specs: [check_llama, check_qwen, check_mistral]   # the specs to draw versions from
+select: all              # all | latest | <tag>
+evaluation:
+  aggregators: [suite_metrics.py:agg_matrix]      # your callables; dow ships none
+  plots: [suite_plots.py:plot_matrix]
+```
+
+Each member keeps its own captured `config`, so your aggregator can bucket by spec /
+model / domain / temperature (the `CohortContext` also carries a parallel `specs` list
+naming each member's spec). Member ids are composite `spec:version`. `select` chooses
+the cohort: `all` (every version of each listed spec - the full matrix), `latest` (each
+spec's newest version), or a tag name (each spec's versions carrying that tag). Runs are
+saved as durable, git-tracked suite bundles (kept separate from single-spec
+aggregations, so they never leak into `dow history`); `dow suite --list` and `--show
+<id>` retrieve them, and `--plot` renders the manifest's plot functions.
+
 ### Pluggable plots
 
 dow can render results to figures without shipping a plotting library: reference your
@@ -195,10 +222,10 @@ evaluation:
     - plots.py:forest_plot          # your matplotlib (or any) code; dow ships none
 ```
 
-Run `dow compare --plot` or `dow aggregate --plot`. dow copies each figure into the
-content-addressed artifact store (`.dow/artifacts/`, git-ignored) and records its hash
-and size; for an aggregation the figure is referenced from the persisted bundle, so it
-stays regenerable while the bytes stay out of git.
+Run `dow compare --plot`, `dow aggregate --plot`, or `dow suite --plot`. dow copies each
+figure into the content-addressed artifact store (`.dow/artifacts/`, git-ignored) and
+records its hash and size; for an aggregation or suite the figure is referenced from the
+persisted bundle, so it stays regenerable while the bytes stay out of git.
 
 ### Non-text outputs
 
@@ -250,10 +277,10 @@ should operate on:
 
 Each tool resolves its project directory from the `project_dir` argument, else
 the `DOW_PROJECT_DIR` environment variable, else the server's current directory.
-The 14 tools mirror the CLI: `dow_list_specs`, `dow_init`, `dow_read_spec`,
+The 15 tools mirror the CLI: `dow_list_specs`, `dow_init`, `dow_read_spec`,
 `dow_write_spec`, `dow_commit`, `dow_compare`, `dow_explain`, `dow_eval`,
-`dow_aggregate`, `dow_history`, `dow_inspect`, `dow_tag`, `dow_tree`, and
-`dow_docs`. They return structured JSON (config diffs, metrics, comparator and
+`dow_aggregate`, `dow_suite`, `dow_history`, `dow_inspect`, `dow_tag`, `dow_tree`,
+and `dow_docs`. They return structured JSON (config diffs, metrics, comparator and
 aggregator results, the version tree, and Mermaid - plus, for text outputs, drift
 scores and verdicts), so a client can run the full edit -> commit -> compare loop.
 

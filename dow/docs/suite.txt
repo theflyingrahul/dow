@@ -1,0 +1,34 @@
+Aggregate versions across several specs (a cross-spec matrix).
+
+Where 'dow aggregate' runs your N-way aggregators over a cohort of versions within
+ONE spec, 'dow suite' runs them over versions drawn from SEVERAL specs - the
+check x model x domain x temperature matrix. You declare the participating specs
+and the project's aggregators/plots in a manifest, specs/<name>.suite.yaml:
+
+  name: robustness_matrix
+  specs: [prompt_sensitivity, seed_sensitivity]
+  select: all            # all | latest | <tag>
+  evaluation:
+    aggregators: [suite_evals.py:agg_matrix]
+    plots: [suite_evals.py:plot_matrix]
+
+Each member keeps its own captured config (so your aggregator can bucket by spec,
+model, domain, or temperature) and payload (aligned per item). Member ids are
+'spec:version'. Selection is 'all' (every version of each spec - the full matrix),
+'latest' (each spec's latest), or a tag name (every version carrying it). Override
+per run with --select. dow ships none of the coefficients or the plotting library;
+it only wires the members into the callables you list under evaluation.aggregators
+and evaluation.plots.
+
+With --plot, the suite's plot functions run over the aggregated results and dow
+stores each figure as a content-addressed artifact. Each run is saved as a durable,
+git-tracked suite bundle; list them with --list and print one with --show <id>, so
+a whole robustness matrix becomes a citable, reproducible object.
+
+@examples
+dow suite robustness_matrix
+dow suite robustness_matrix --plot
+dow suite robustness_matrix --select latest
+dow suite robustness_matrix --select golden
+dow suite robustness_matrix --list
+dow suite robustness_matrix --show a1

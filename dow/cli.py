@@ -44,7 +44,9 @@ def _spec_path(name: str) -> Path:
 
 def _spec_files() -> list:
     d = _specs_dir()
-    return sorted(d.glob("*.yaml")) if d.is_dir() else []
+    if not d.is_dir():
+        return []
+    return sorted(f for f in d.glob("*.yaml") if not f.name.endswith(service.SUITE_SUFFIX))
 
 
 def _find_spec_name(name: Optional[str]) -> Optional[str]:
@@ -227,6 +229,39 @@ def aggregate(
         return
     try:
         result = service.aggregate(_root(), name=name, versions=versions or None, tag=tag, plot=plot)
+    except service.DowError as exc:
+        raise typer.BadParameter(str(exc))
+    report.print_aggregation(result)
+
+
+@app.command(**_doc("suite"))
+def suite(
+    name: Optional[str] = typer.Argument(
+        None, help="Suite manifest name (specs/<name>.suite.yaml)."),
+    select: Optional[str] = typer.Option(
+        None, "--select", help="Override selection: all | latest | <tag>."),
+    plot: bool = typer.Option(False, "--plot", help="Also run the suite's plot functions and store the figures."),
+    list_: bool = typer.Option(False, "--list", help="List stored suite bundles instead of running one."),
+    show: Optional[str] = typer.Option(None, "--show", help="Print a stored suite bundle by id (e.g. a1)."),
+) -> None:
+    """Aggregate versions across several specs (the check x model x domain x temperature matrix)."""
+    try:
+        sname = service.need_suite(_root(), name)
+    except service.DowError as exc:
+        raise typer.BadParameter(str(exc))
+    if list_:
+        data = service.suite_aggregations(_root(), sname)
+        report.print_aggregation_list(sname, data["aggregations"])
+        return
+    if show:
+        try:
+            bundle = service.get_suite_aggregation(_root(), sname, show)
+        except service.DowError as exc:
+            raise typer.BadParameter(str(exc))
+        report.print_aggregation(bundle)
+        return
+    try:
+        result = service.aggregate_suite(_root(), name=sname, select=select, plot=plot)
     except service.DowError as exc:
         raise typer.BadParameter(str(exc))
     report.print_aggregation(result)

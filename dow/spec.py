@@ -110,6 +110,69 @@ class InferenceSpec:
         return hashlib.sha256(payload.encode("utf-8")).hexdigest()[:12]
 
 
+@dataclass
+class SuiteSpec:
+    """A cross-spec aggregation manifest: the many-*spec* counterpart of a cohort.
+
+    Where an :class:`InferenceSpec` is versioned and its ``aggregate`` runs over a
+    cohort of *versions within one spec* (K seeds / judges / wordings), a suite runs
+    the project's own aggregators/plots over versions drawn from *several specs* -
+    the check x model x domain x temperature matrix. dow only wires the members in;
+    it ships none of the coefficients or the plotting library (``aggregators`` /
+    ``plots`` are the project's callables, exactly as for a single spec).
+
+    Selection (``select``): ``all`` (every version of each listed spec, the full
+    matrix), ``latest`` (each spec's latest version), or a tag name (every version
+    carrying that tag, across the listed specs).
+    """
+
+    name: str = "suite"
+    task: str = ""
+    spec_version: int = 1
+    specs: list = field(default_factory=list)
+    select: str = "all"
+    aggregators: list = field(default_factory=list)
+    plots: list = field(default_factory=list)
+
+    @staticmethod
+    def load(path) -> "SuiteSpec":
+        data = yaml.safe_load(Path(path).read_text(encoding="utf-8")) or {}
+        return SuiteSpec.from_dict(data)
+
+    @staticmethod
+    def from_dict(data: dict) -> "SuiteSpec":
+        data = data or {}
+        evaluation = data.get("evaluation") or {}
+        return SuiteSpec(
+            name=data.get("name", "suite"),
+            task=data.get("task", ""),
+            spec_version=data.get("spec_version", 1),
+            specs=[str(s) for s in (data.get("specs") or [])],
+            select=str(data.get("select", "all")),
+            aggregators=list(evaluation.get("aggregators") or []),
+            plots=list(evaluation.get("plots") or []),
+        )
+
+    def to_dict(self) -> dict:
+        return {
+            "spec_version": self.spec_version,
+            "name": self.name,
+            "task": self.task,
+            "kind": "suite",
+            "specs": list(self.specs),
+            "select": self.select,
+            "evaluation": {
+                "aggregators": list(self.aggregators),
+                "plots": list(self.plots),
+            },
+        }
+
+    def fingerprint(self) -> str:
+        """Stable short hash of the suite manifest."""
+        payload = json.dumps(self.to_dict(), sort_keys=True, ensure_ascii=False)
+        return hashlib.sha256(payload.encode("utf-8")).hexdigest()[:12]
+
+
 def flatten(d: dict, prefix: str = "") -> dict:
     """Flatten a nested config into dotted keys, e.g. ``sampling.temperature``."""
     out: dict = {}

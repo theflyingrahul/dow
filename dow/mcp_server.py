@@ -1,10 +1,11 @@
 """Model Context Protocol (MCP) server for dow.
 
 Exposes dow's core behavior-versioning workflow - scaffold a spec, capture
-versions, compare/explain drift, aggregate reliability over a cohort, evaluate,
-tag, and visualize evolution - as MCP tools so an AI client can drive dow
-directly, at full parity with the CLI. Read-only MCP resources expose dow's docs
-and the live project's specs as attachable context (the ``dow://`` URIs below).
+versions, compare/explain drift, aggregate reliability over a cohort (or across
+specs as a matrix), evaluate, tag, and visualize evolution - as MCP tools so an
+AI client can drive dow directly, at full parity with the CLI. Read-only MCP
+resources expose dow's docs and the live project's specs as attachable context
+(the ``dow://`` URIs below).
 
 It runs over stdio (the standard MCP transport). Every tool acts on a dow
 project directory, resolved in this order:
@@ -57,7 +58,8 @@ Typical loop:
   3. dow_commit                           - capture a new version (v1, v2, ...)
   4. dow_compare / dow_explain            - what changed pairwise, and why
   5. dow_aggregate                        - reliability metrics over a COHORT (K seeds/judges/prompts)
-  6. dow_eval / dow_tag / dow_tree / dow_history / dow_inspect
+  6. dow_suite                            - aggregate ACROSS specs (the check x model x domain x temp matrix)
+  7. dow_eval / dow_tag / dow_tree / dow_history / dow_inspect
 
 Refer to versions by name (v1, v2), the shortcuts "last"/"prev", or any label
 applied with dow_tag (e.g. "good"). dow_commit(from_version=...) branches from an
@@ -287,6 +289,38 @@ def dow_aggregate(
     if show:
         return _run(service.get_aggregation, root, name=spec, agg_id=show)
     return _run(service.aggregate, root, name=spec, versions=versions, tag=tag, plot=plot)
+
+
+@mcp.tool()
+def dow_suite(
+    name: Optional[str] = None,
+    select: str = "all",
+    plot: bool = False,
+    list_bundles: bool = False,
+    show: Optional[str] = None,
+    project_dir: Optional[str] = None,
+) -> dict:
+    """Aggregate versions ACROSS several specs - the cross-spec matrix sibling of dow_aggregate.
+
+    Where dow_aggregate runs the project's N-way aggregators over a cohort within
+    ONE spec, this runs them over versions drawn from SEVERAL specs (the
+    check x model x domain x temperature matrix) declared in a manifest,
+    `specs/<name>.suite.yaml` (its `specs:` list plus `evaluation.aggregators`/
+    `plots`). `select` chooses the cohort: "all" (every version of each listed
+    spec, the default), "latest" (each spec's newest version), or a tag name
+    (each spec's versions carrying that tag). Each member keeps its own captured
+    config so an aggregator can bucket by spec/axis; dow ships none of the
+    coefficients or the plotting library. With `plot=true` the manifest's plot
+    functions render the matrix and dow stores each figure as a content-addressed
+    artifact. Every run is a durable, git-tracked suite bundle: set
+    `list_bundles=true` to list them or `show=<id>` to fetch one.
+    """
+    root = _root(project_dir)
+    if list_bundles:
+        return _run(service.suite_aggregations, root, name=name)
+    if show:
+        return _run(service.get_suite_aggregation, root, name=name, agg_id=show)
+    return _run(service.aggregate_suite, root, name=name, select=select, plot=plot)
 
 
 # --------------------------------------------------------------------------- #

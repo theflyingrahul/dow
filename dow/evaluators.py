@@ -69,6 +69,7 @@ class CohortContext:
     ids: list = field(default_factory=list)     # version ids, parallel to members
     labels: list = field(default_factory=list)  # optional human labels (tags/params)
     name: str = ""
+    specs: list = field(default_factory=list)   # parallel spec name per member (suites; [] for single-spec)
 
 
 @dataclass
