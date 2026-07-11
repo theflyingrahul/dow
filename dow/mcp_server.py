@@ -59,7 +59,11 @@ Typical loop:
   4. dow_compare / dow_explain            - what changed pairwise, and why
   5. dow_aggregate                        - reliability metrics over a COHORT (K seeds/judges/prompts)
   6. dow_suite                            - aggregate ACROSS specs (the check x model x domain x temp matrix)
-  7. dow_eval / dow_tag / dow_tree / dow_history / dow_inspect
+  7. dow_trend                            - follow a metric across the WHOLE history (regression watch)
+  8. dow_eval / dow_tag / dow_tree / dow_history / dow_inspect
+
+For sweeps and CI, dow_compare(fail_on="regression"|"drift") and dow_eval with a
+metric threshold return a gate decision a caller can turn into a pass/fail.
 
 Refer to versions by name (v1, v2), the shortcuts "last"/"prev", or any label
 applied with dow_tag (e.g. "good"). dow_commit(from_version=...) branches from an
@@ -193,6 +197,7 @@ def dow_compare(
     b: Optional[str] = None,
     spec: Optional[str] = None,
     plot: bool = False,
+    fail_on: Optional[str] = None,
     project_dir: Optional[str] = None,
 ) -> dict:
     """Compare two versions: config diff, output difference, semantic drift, stability, verdict.
@@ -207,9 +212,12 @@ def dow_compare(
     `driftEnabled` is false, so the client leans on the configuration diff and the
     comparators instead. With `plot=true` the spec's `evaluation.plots` functions
     render the comparison and dow stores the figures they produce as
-    content-addressed artifacts.
+    content-addressed artifacts. Set `fail_on` to "regression" or "drift" to add a
+    `gate` decision (`breached`/`reason`) a sweep or CI job can act on; a null
+    verdict (embedding_model none) never trips - gate on a project metric via
+    dow_eval instead.
     """
-    return _run(service.compare, _root(project_dir), name=spec, a=a, b=b, plot=plot)
+    return _run(service.compare, _root(project_dir), name=spec, a=a, b=b, plot=plot, fail_on=fail_on)
 
 
 @mcp.tool()
@@ -321,6 +329,29 @@ def dow_suite(
     if show:
         return _run(service.get_suite_aggregation, root, name=name, agg_id=show)
     return _run(service.aggregate_suite, root, name=name, select=select, plot=plot)
+
+
+@mcp.tool()
+def dow_trend(
+    metric: Optional[str] = None,
+    spec: Optional[str] = None,
+    plot: bool = False,
+    project_dir: Optional[str] = None,
+) -> dict:
+    """Trend a metric across a spec's WHOLE version history (the longitudinal sibling of dow_compare).
+
+    Where dow_compare contrasts two versions, this follows a metric across every
+    version in commit order, so a slow drift over many iterations is visible. It
+    returns each version's value with its change since the previous version
+    (`deltaPrev`) and since the baseline (`deltaBaseline`), plus a `change` label
+    (baseline / same-config / config-changed) mirroring dow_history. Both the
+    built-in text `stability` and the project's own `evaluation.metrics` scores are
+    trended; omit `metric` to get every numeric metric, or name one to focus. dow
+    computes no new numbers - it lines up the ones already recorded. With
+    `plot=true` the spec's `evaluation.plots` functions receive the series (kind
+    "trend") and dow stores each figure as a content-addressed artifact.
+    """
+    return _run(service.trend, _root(project_dir), name=spec, metric=metric, plot=plot)
 
 
 # --------------------------------------------------------------------------- #

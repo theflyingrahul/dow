@@ -352,7 +352,15 @@ evaluation:
     - plots.py:forest_plot            # your matplotlib (or any) code; dow ships none
 ```
 
-Run with `dow compare --plot` or `dow aggregate --plot`. dow copies each produced file into the content-addressed artifact store (`.dow/artifacts/`, git-ignored, like payloads), records its `sha256`, byte size, and original filename in the result, and — for an aggregation — references it from the persisted bundle so the figure is integrity-checkable and regenerable. The figure bytes stay out of the git history; only the light reference travels with the commit. A plot failure is captured and reported, never fatal.
+Run with `dow compare --plot`, `dow aggregate --plot`, `dow suite --plot`, or `dow trend --plot`. dow copies each produced file into the content-addressed artifact store (`.dow/artifacts/`, git-ignored, like payloads), records its `sha256`, byte size, and original filename in the result, and — for an aggregation — references it from the persisted bundle so the figure is integrity-checkable and regenerable. The figure bytes stay out of the git history; only the light reference travels with the commit. A plot failure is captured and reported, never fatal.
+
+### Longitudinal trend and the regression gate (orchestration only)
+
+Two additions that read the numbers dow already records — they compute nothing new, keeping dow metric-free.
+
+**`dow trend`** is the longitudinal complement to the pairwise `dow compare`: it follows one metric (or every numeric metric) across a spec's **whole** version history in commit order, so a slow drift over many iterations — invisible to any single pairwise hop — becomes plain. Each version's value is reported with its change since the previous version and since the baseline (v1), and each hop is labelled `baseline` / `same-config` / `config-changed` using the same fingerprint-vs-previous logic as `dow history`. Both the built-in text `stability` and the project's own `evaluation.metrics` scores are trended; `--metric` focuses on one and `--plot` hands the series to `evaluation.plots` (`kind="trend"`). A metric missing on some versions yields a null point, and deltas are measured against the last non-null value.
+
+**The regression gate** turns a comparison or an evaluation into a process exit code so a sweep or CI job fails fast. `dow compare --fail-on-regression` exits non-zero when the built-in verdict is a likely regression; `--fail-on-drift` is stricter (behavior drift or worse). `dow eval --metric NAME --min X --max Y` gates on a project-supplied score and **fails closed** — a missing or non-numeric value where a bound is set is a breach, so a gate never silently passes when the metric it guards has vanished (this also works with `--draft`, to reject a bad working spec before committing). With `embedding_model: none` the verdict is null and never trips; gate on a project metric instead. The gate is a pure decision (`verdict_gate` / `threshold_gate` in the service), so it is independently testable and identical across the CLI and the MCP surface.
 
 ---
 
@@ -372,6 +380,7 @@ The commands are task-oriented, not version-control plumbing. Versioning is auto
 | `dow eval [version]` | Run custom evaluators; compare scores against the previous and last-good versions |
 | `dow aggregate [VERSIONS]` | Aggregate reliability metrics over a cohort of versions (N-way); persist a git-tracked bundle, optionally with figures (`--plot`) |
 | `dow suite [NAME]` | Aggregate versions across several specs (a cross-spec matrix declared in `specs/<name>.suite.yaml`); persist a git-tracked bundle, optionally with figures (`--plot`) |
+| `dow trend` | Follow a metric across a spec's whole version history (tree-aware); the built-in `stability` and the project's own scores, each with its change vs. the previous version and the baseline, optionally plotted (`--plot`) |
 | `dow tree` | Visualize evolution: a vertical trunk with branches, as a terminal tree or an exported Mermaid `gitGraph` |
 
 Versions are referred to by simple names (`v1`, `v2`), the shortcuts `last` and `prev`, or any label applied with `dow tag` (for example `good`). They form a tree: every commit records its parent, and `dow commit --from v1` starts a new branch from an earlier version. Command output is rendered in the terminal.
@@ -427,7 +436,7 @@ The trunk `v1 -> v2` is the main line; `v3-branch` forks from v1 and continues t
 
 ### Programmatic and MCP surface
 
-The command line is one front end over a headless core (`dow/service.py`); an AI agent gets the same workflow over the Model Context Protocol. The `dow-mcp` server (install with the `mcp` extra) exposes fifteen tools mirroring the commands above - scaffold, read/write a spec, commit, compare, explain, eval, aggregate, aggregate across specs (suite), tag, history, inspect, tree, and docs - plus read-only resources (`dow://overview`, `dow://docs/<command>`, `dow://specs`, `dow://spec/<name>`) an agent can attach as context. Because both surfaces call the same core, they never drift apart, and both are data-structure agnostic: when a spec sets `embedding_model: none`, the built-in drift, stability, and verdict come back null (`driftEnabled` is false) and the configuration diff plus the project's own metrics carry the analysis. dow itself still ships no metric, statistic, or plotting code.
+The command line is one front end over a headless core (`dow/service.py`); an AI agent gets the same workflow over the Model Context Protocol. The `dow-mcp` server (install with the `mcp` extra) exposes sixteen tools mirroring the commands above - scaffold, read/write a spec, commit, compare, explain, eval, aggregate, aggregate across specs (suite), trend, tag, history, inspect, tree, and docs - plus read-only resources (`dow://overview`, `dow://docs/<command>`, `dow://specs`, `dow://spec/<name>`) an agent can attach as context. `dow_compare` takes a `fail_on` argument that returns a structured regression-gate decision. Because both surfaces call the same core, they never drift apart, and both are data-structure agnostic: when a spec sets `embedding_model: none`, the built-in drift, stability, and verdict come back null (`driftEnabled` is false) and the configuration diff plus the project's own metrics carry the analysis. dow itself still ships no metric, statistic, or plotting code.
 
 ---
 
@@ -531,6 +540,7 @@ The tool runs entirely offline by default (mock provider and a built-in hashing 
 - [ ] `dow tree` visualizes the version evolution (terminal tree and exported Mermaid), with branches via `dow commit --from`.
 - [ ] Users can plug in custom evaluators (`evaluation.metrics`); `dow eval` runs them lazily, saves the scores with the version, and compares against the previous and last-good versions.
 - [ ] Users can plug in paired comparators (`evaluation.comparators`), N-way cohort aggregators (`evaluation.aggregators`) surfaced by `dow aggregate` as durable git-tracked bundles, cross-spec suites (`specs/<name>.suite.yaml`) surfaced by `dow suite`, and plot functions (`evaluation.plots`) whose figures dow stores as content-addressed artifacts — dow shipping none of the coefficients or plotting code.
+- [ ] `dow trend` follows a metric across a spec's whole version history (tree-aware, built-in stability and project scores, deltas vs. previous and baseline); `dow compare --fail-on-regression`/`--fail-on-drift` and `dow eval --metric --min/--max` gate sweeps/CI with a non-zero exit code (the metric gate failing closed), computing no new numbers.
 - [ ] `dow tag` applies free-form labels (good, golden, baseline, ...) that are usable as version references.
 - [ ] The tool runs end to end offline through mock or local mode.
 - [ ] A rehearsed two-minute demonstration that lands the closing statement.

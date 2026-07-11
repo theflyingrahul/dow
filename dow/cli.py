@@ -185,6 +185,12 @@ def compare(
     b: Optional[str] = typer.Argument(None, help="Second version (default: latest)."),
     spec: Optional[str] = typer.Option(None, "--spec", "-s"),
     plot: bool = typer.Option(False, "--plot", help="Also run the spec's plot functions and store the figures."),
+    fail_on_regression: bool = typer.Option(
+        False, "--fail-on-regression",
+        help="Exit non-zero if the verdict is a likely regression (for sweeps/CI)."),
+    fail_on_drift: bool = typer.Option(
+        False, "--fail-on-drift",
+        help="Exit non-zero if the verdict is behavior drift or worse (stricter gate)."),
 ) -> None:
     """Compare two versions: outputs, drift, stability, and a verdict."""
     name = _need_spec(spec)
@@ -201,6 +207,11 @@ def compare(
         plot_refs = b_rec.get("config", {}).get("evaluation", {}).get("plots", []) or []
         figs = service.run_plots(store, plot_refs, r, [a_rec, b_rec], [a_id, b_id], _root(), "compare", name)
         report.print_figures(figs)
+    if fail_on_regression or fail_on_drift:
+        gate = service.verdict_gate(r["verdict"], "drift" if fail_on_drift else "regression")
+        report.print_gate(gate)
+        if gate["breached"]:
+            raise typer.Exit(1)
 
 
 @app.command(**_doc("aggregate"))
@@ -265,6 +276,27 @@ def suite(
     except service.DowError as exc:
         raise typer.BadParameter(str(exc))
     report.print_aggregation(result)
+
+
+@app.command(**_doc("trend"))
+def trend(
+    metric: Optional[str] = typer.Option(
+        None, "--metric", "-m", help="Metric to trend (default: every numeric metric)."),
+    spec: Optional[str] = typer.Option(None, "--spec", "-s"),
+    plot: bool = typer.Option(False, "--plot", help="Also run the spec's plot functions and store the figures."),
+) -> None:
+    """Trend a metric across a spec's whole version history (tree-aware)."""
+    name = _need_spec(spec)
+    try:
+        result = service.trend(_root(), name=name, metric=metric, plot=plot)
+    except service.DowError as exc:
+        raise typer.BadParameter(str(exc))
+    report.print_trend(result)
+    if plot:
+        report.print_figures({
+            "figures": result.get("figures", []),
+            "plotError": result.get("plotError"),
+        })
 
 
 @app.command(**_doc("explain"))
@@ -337,10 +369,18 @@ def evaluate(
     ),
     good_tag: str = typer.Option("good", "--good-tag", help="Tag that marks the known-good baseline."),
     spec: Optional[str] = typer.Option(None, "--spec", "-s"),
+    metric: Optional[str] = typer.Option(
+        None, "--metric", "-m", help="Metric to gate on with --min/--max (for sweeps/CI)."),
+    minimum: Optional[float] = typer.Option(
+        None, "--min", help="Fail (exit non-zero) if --metric is below this value."),
+    maximum: Optional[float] = typer.Option(
+        None, "--max", help="Fail (exit non-zero) if --metric is above this value."),
 ) -> None:
     """Run custom evaluators on a version; compare to the previous and last-good versions."""
     name = _need_spec(spec)
     store = Store(_root())
+    if (minimum is not None or maximum is not None) and not metric:
+        raise typer.BadParameter("--min/--max require --metric NAME.")
 
     if draft:
         # Preview: execute the working spec and score it without persisting a version.
@@ -366,6 +406,7 @@ def evaluate(
             "  [dim]draft preview - nothing was committed. "
             "Run [bold]dow commit[/bold] to capture this as a version.[/dim]"
         )
+        _apply_metric_gate(result, metric, minimum, maximum)
         return
 
     versions = store.list_versions(name)
@@ -390,6 +431,18 @@ def evaluate(
     prev_eval = _ensure_eval(store, name, prev_id) if prev_id else None
     good_eval = _ensure_eval(store, name, good_id) if good_id else None
     report.print_eval(name, vid, target_eval, prev_id, prev_eval, good_tag, good_id, good_eval)
+    _apply_metric_gate(target_eval, metric, minimum, maximum)
+
+
+def _apply_metric_gate(eval_result, metric, minimum, maximum) -> None:
+    """Turn --metric/--min/--max into a printed decision + process exit code."""
+    if not metric or (minimum is None and maximum is None):
+        return
+    value = (eval_result or {}).get("metrics", {}).get(metric)
+    gate = service.threshold_gate(value, minimum, maximum, metric)
+    report.print_gate(gate)
+    if gate["breached"]:
+        raise typer.Exit(1)
 
 
 def _build_tree(store: Store, name: str) -> dict:

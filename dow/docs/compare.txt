@@ -16,10 +16,17 @@ configuration difference and your own comparators carry the comparison instead.
 
 With --plot, the spec's evaluation.plots functions render the comparison and dow
 stores the figures they produce as content-addressed artifacts (dow ships no
-plotting library). To aggregate more than two versions at once, use 'dow aggregate'.
+plotting library). To aggregate more than two versions at once, use 'dow aggregate';
+to follow a metric across the whole history, use 'dow trend'.
+
+For sweeps and CI, --fail-on-regression exits non-zero when the verdict is a likely
+regression, and --fail-on-drift trips on behavior drift or worse. With
+embedding_model 'none' the built-in verdict is null and never trips - gate on a
+project metric with 'dow eval --metric NAME --min/--max' instead.
 
 @examples
 dow compare
 dow compare v1 v3
 dow compare good last
 dow compare v1 v2 --plot
+dow compare good last --fail-on-regression

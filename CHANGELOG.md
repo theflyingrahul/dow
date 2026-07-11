@@ -4,6 +4,31 @@ All notable changes to dow are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/), and dow adheres to
 [Semantic Versioning](https://semver.org/).
 
+## [2.2.0] - 2026-07-11
+
+### Added
+- **Longitudinal trend (`dow trend`) — follow a metric across a spec's *whole*
+  version history, not just pairwise.** Where `dow compare` contrasts two
+  versions, `dow trend` lines up a metric across every version in commit order so
+  a slow drift over many iterations is visible. It reports each version's value
+  with its change since the previous version and since the baseline (v1), and
+  labels each hop `baseline` / `same-config` / `config-changed` (the same tree
+  awareness as `dow history`). Both the built-in text `stability` and the
+  project's own `evaluation.metrics` scores are trended; pass `--metric NAME` to
+  focus on one or omit it to see every numeric metric. `--plot` hands the series
+  to the spec's `evaluation.plots` functions (`kind="trend"`). dow computes no new
+  numbers — it only aligns the ones already recorded.
+- **Regression gate — turn a comparison or an evaluation into a non-zero exit code
+  for sweeps and CI.** `dow compare --fail-on-regression` exits non-zero when the
+  built-in verdict is a likely regression; `--fail-on-drift` is stricter (trips on
+  behavior drift or worse). `dow eval --metric NAME --min X --max Y` gates on a
+  project-supplied score and **fails closed** — a missing or non-numeric value
+  where a bound is set is a breach, so a gate never silently passes when the metric
+  it guards has vanished (works with `--draft` too). With `embedding_model: none`
+  the built-in verdict is null and never trips; gate on a project metric instead.
+- **MCP:** new `dow_trend` tool (16 tools total) and a `fail_on` parameter on
+  `dow_compare` that returns a structured `gate` decision an agent can act on.
+
 ## [2.1.0] - 2026-07-11
 
 ### Added

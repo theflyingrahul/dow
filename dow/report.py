@@ -370,6 +370,63 @@ def print_eval(name, vid, target, prev_id, prev, good_tag, good_id, good) -> Non
         )
 
 
+def print_trend(data: dict) -> None:
+    """Render a metric's longitudinal trend across a spec's whole version history."""
+    spec = data.get("spec", "")
+    metrics = data.get("metrics", []) or []
+    rows = data.get("rows", []) or []
+    console.print(
+        Panel.fit(
+            f"[bold]{spec}[/bold]  metric trend over {data.get('count', len(rows))} versions",
+            title="dow trend", border_style="cyan",
+        )
+    )
+    if not metrics:
+        console.print("[yellow]No numeric metrics recorded yet.[/yellow] "
+                      "Add evaluators under 'evaluation.metrics', or use a text spec for stability.")
+        return
+    series = data.get("series", {})
+    table = Table(box=box.SIMPLE, header_style="bold")
+    table.add_column("version")
+    table.add_column("change")
+    single = len(metrics) == 1
+    if single:
+        m = metrics[0]
+        table.add_column(m, justify="right")
+        table.add_column("Δ prev", justify="right")
+        table.add_column("Δ base", justify="right")
+        for pt in series.get(m, []):
+            table.add_row(
+                pt["id"], pt["change"], _f(pt.get("value")),
+                _f(pt.get("deltaPrev"), "{:+.3f}"), _f(pt.get("deltaBaseline"), "{:+.3f}"),
+            )
+    else:
+        for m in metrics:
+            table.add_column(m, justify="right")
+        for r in rows:
+            cells = [r["id"], r["change"]]
+            for m in metrics:
+                pt = next((p for p in series.get(m, []) if p["id"] == r["id"]), None)
+                val = pt.get("value") if pt else r.get("values", {}).get(m)
+                dp = pt.get("deltaPrev") if pt else None
+                cells.append(_f(val) + (f" ([dim]{dp:+.3f}[/dim])" if isinstance(dp, (int, float)) else ""))
+            table.add_row(*cells)
+    console.print(table)
+
+
+def print_gate(gate: dict) -> None:
+    """Render a regression-gate decision (the CLI also sets the process exit code)."""
+    if not gate:
+        return
+    mode = gate.get("mode", "gate")
+    if gate.get("breached"):
+        console.print(f"  [bold red]GATE FAILED[/bold red] [dim]({mode})[/dim]  {gate.get('reason', '')}")
+    else:
+        reason = gate.get("reason")
+        note = f"  [dim]{reason}[/dim]" if reason else ""
+        console.print(f"  [green]gate passed[/green] [dim]({mode})[/dim]{note}")
+
+
 def print_figures(figs: dict) -> None:
     """Render the figures a project's plot functions produced (stored by dow)."""
     if not figs:

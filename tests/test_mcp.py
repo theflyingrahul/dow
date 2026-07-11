@@ -17,8 +17,8 @@ from dow import mcp_server as M  # noqa: E402
 
 EXPECTED_TOOLS = {
     "dow_list_specs", "dow_init", "dow_read_spec", "dow_write_spec", "dow_commit",
-    "dow_compare", "dow_explain", "dow_eval", "dow_aggregate", "dow_suite", "dow_history",
-    "dow_inspect", "dow_tag", "dow_tree", "dow_docs",
+    "dow_compare", "dow_explain", "dow_eval", "dow_aggregate", "dow_suite", "dow_trend",
+    "dow_history", "dow_inspect", "dow_tag", "dow_tree", "dow_docs",
 }
 
 
@@ -93,3 +93,38 @@ def test_compare_tool_threads_the_agnostic_flag(tmp_path):
     exp = M.dow_explain(project_dir=d)
     assert exp["driftEnabled"] is False
     assert exp["verdict"] is None
+
+
+def test_compare_tool_fail_on_surfaces_a_gate(tmp_path):
+    d = str(tmp_path)
+    M.dow_init(project_dir=d)
+    M.dow_commit(project_dir=d, message="v1")
+    spec = M.dow_read_spec(project_dir=d)["text"]
+    assert M.dow_write_spec(spec.replace("temperature: 0.2", "temperature: 0.9"),
+                            project_dir=d)["valid"]
+    M.dow_commit(project_dir=d, message="v2")
+
+    gated = M.dow_compare(project_dir=d, fail_on="regression")
+    assert "gate" in gated
+    assert gated["gate"]["mode"] == "verdict:regression"
+    assert gated["gate"]["breached"] == (gated["verdict"] == "Likely Regression")
+    # without fail_on there is no gate key
+    assert "gate" not in M.dow_compare(project_dir=d)
+
+
+def test_trend_tool_returns_a_series(tmp_path):
+    d = str(tmp_path)
+    M.dow_init(project_dir=d)
+    M.dow_commit(project_dir=d, message="v1")
+    spec = M.dow_read_spec(project_dir=d)["text"]
+    assert M.dow_write_spec(spec.replace("temperature: 0.2", "temperature: 0.9"),
+                            project_dir=d)["valid"]
+    M.dow_commit(project_dir=d, message="v2")
+
+    tr = M.dow_trend(project_dir=d, metric="stability")
+    assert tr["count"] == 2
+    assert tr["metrics"] == ["stability"]
+    seq = tr["series"]["stability"]
+    assert [p["id"] for p in seq] == ["v1", "v2"]
+    assert seq[0]["deltaBaseline"] is None  # baseline has no reference
+
