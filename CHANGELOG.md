@@ -21,6 +21,20 @@ All notable changes to dow are documented here. The format follows
   on every write via `_safe_component`. Regression tests added
   (`tests/test_security.py::test_store_writes_block_traversal_spec_name`).
 
+### Fixed
+- **Store writes are now atomic, so a torn write can no longer corrupt the
+  store.** `index.json`, per-version records, aggregation bundles, and
+  content-addressed artifacts were written in place with `write_text` /
+  `write_bytes`; a crash — or a Dropbox/NFS sync landing mid-write — could leave
+  a half-written file. A truncated `index.json` breaks the entire version
+  history, and a truncated artifact would fail its later sha256 check. Every
+  durable write now goes through a temp file in the same directory that is
+  flushed, `fsync`ed, and `os.replace`d over the target (an atomic rename), so a
+  reader sees either the old bytes or the new bytes, never a mix; on failure the
+  temp is removed and the original is left intact. `.dow/.gitignore` now also
+  ignores `*.tmp` crash residue (added to existing stores on `ensure`, preserving
+  any user lines). Regression tests added (`tests/test_store_atomic.py`).
+
 ## [2.0.3] - 2026-07-11
 
 ### Added

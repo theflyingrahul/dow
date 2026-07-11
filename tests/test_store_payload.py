@@ -45,7 +45,9 @@ def test_payload_is_externalized_and_rehydrated(tmp_path):
 def test_artifacts_are_git_ignored(tmp_path):
     st = Store(tmp_path)
     st.ensure()
-    assert (tmp_path / ".dow" / ".gitignore").read_text(encoding="utf-8").strip() == "artifacts/"
+    ignored = (tmp_path / ".dow" / ".gitignore").read_text(encoding="utf-8").split()
+    assert "artifacts/" in ignored          # heavy payload blobs stay out of git
+    assert "*.tmp" in ignored               # atomic-write crash residue stays out too
     st.add_version("s", _record({"labels": [1, 2, 3]}))
     tracked = st.git._run("ls-files", check=False)
     assert "artifacts/" not in tracked

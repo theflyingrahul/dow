@@ -16,6 +16,7 @@ import dataclasses
 import hashlib
 import json
 import os
+import tempfile
 from pathlib import Path
 from typing import Optional
 
@@ -76,6 +77,40 @@ def _json_default(obj):
     return str(obj)
 
 
+def _atomic_write_bytes(path: Path, data: bytes) -> None:
+    """Write ``data`` to ``path`` atomically so a torn write can never corrupt a
+    store file.
+
+    A temp file in the *same* directory is fully written, flushed and fsynced,
+    then ``os.replace``d over the target - an atomic rename on POSIX and on a
+    same-filesystem Windows move. A concurrent reader (or a crash / Dropbox- or
+    NFS-sync landing mid-write) therefore sees either the old bytes or the new
+    bytes, never a truncated mix. dow's durability rests on this: a half-written
+    ``index.json`` would otherwise break the entire version history, and a
+    half-written artifact would fail its later sha256 check. On any failure the
+    temp file is removed and the original target is left untouched.
+    """
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fd, tmp = tempfile.mkstemp(prefix=f".{path.name}.", suffix=".tmp", dir=path.parent)
+    try:
+        with os.fdopen(fd, "wb") as fh:
+            fh.write(data)
+            fh.flush()
+            os.fsync(fh.fileno())
+        os.replace(tmp, path)
+    except BaseException:
+        try:
+            os.unlink(tmp)
+        except OSError:
+            pass
+        raise
+
+
+def _atomic_write_text(path: Path, text: str) -> None:
+    _atomic_write_bytes(path, text.encode("utf-8"))
+
+
 class Store:
     def __init__(self, root: Path):
         self.root = Path(root)
@@ -93,8 +128,14 @@ class Store:
         (self.dir / "versions").mkdir(exist_ok=True)
         self.artifacts_dir.mkdir(exist_ok=True)
         gitignore = self.dir / ".gitignore"
-        if not gitignore.exists():
-            gitignore.write_text(f"{ARTIFACTS_DIR}/\n", encoding="utf-8")
+        wanted = [f"{ARTIFACTS_DIR}/", "*.tmp"]
+        existing = (
+            gitignore.read_text(encoding="utf-8").splitlines()
+            if gitignore.exists() else []
+        )
+        if any(w not in existing for w in wanted):
+            lines = existing + [w for w in wanted if w not in existing]
+            _atomic_write_text(gitignore, "\n".join(lines) + "\n")
         if not self.index_path.exists():
             self._save_index({"specs": {}})
         if not self.git.is_repo():
@@ -120,7 +161,7 @@ class Store:
         self.artifacts_dir.mkdir(parents=True, exist_ok=True)
         art = self.artifacts_dir / f"{sha}.json"
         if not art.exists():
-            art.write_text(blob.decode("utf-8"), encoding="utf-8")
+            _atomic_write_bytes(art, blob)
         disk = dict(record)
         disk["payload"] = {"__artifact__": f"{sha}.json", "sha256": sha, "bytes": len(blob)}
         return disk
@@ -168,7 +209,7 @@ class Store:
         self.artifacts_dir.mkdir(parents=True, exist_ok=True)
         art = self.artifacts_dir / f"{sha}{src.suffix}"
         if not art.exists():
-            art.write_bytes(data)
+            _atomic_write_bytes(art, data)
         return {
             "__artifact__": art.name,
             "sha256": sha,
@@ -182,7 +223,7 @@ class Store:
         return json.loads(self.index_path.read_text(encoding="utf-8"))
 
     def _save_index(self, index: dict) -> None:
-        self.index_path.write_text(json.dumps(index, indent=2), encoding="utf-8")
+        _atomic_write_text(self.index_path, json.dumps(index, indent=2))
 
     def list_versions(self, spec_name: str) -> list:
         if not self.index_path.exists():
@@ -243,9 +284,9 @@ class Store:
 
         vdir = self.dir / "versions" / spec_name
         vdir.mkdir(parents=True, exist_ok=True)
-        (vdir / f"{vid}.json").write_text(
+        _atomic_write_text(
+            vdir / f"{vid}.json",
             json.dumps(self._externalize(record), indent=2, default=_json_default),
-            encoding="utf-8",
         )
 
         entry["versions"].append(
@@ -331,8 +372,8 @@ class Store:
         path = self.dir / "versions" / spec_name / f"{version_id}.json"
         record = json.loads(path.read_text(encoding="utf-8"))
         record["eval"] = eval_result
-        path.write_text(
-            json.dumps(record, indent=2, default=_json_default), encoding="utf-8"
+        _atomic_write_text(
+            path, json.dumps(record, indent=2, default=_json_default)
         )
         index = self._load_index()
         for v in index["specs"].get(spec_name, {}).get("versions", []):
@@ -361,8 +402,9 @@ class Store:
         result["id"] = agg_id
         adir = self.dir / AGGREGATIONS_DIR / spec_name
         adir.mkdir(parents=True, exist_ok=True)
-        (adir / f"{agg_id}.json").write_text(
-            json.dumps(result, indent=2, default=_json_default), encoding="utf-8"
+        _atomic_write_text(
+            adir / f"{agg_id}.json",
+            json.dumps(result, indent=2, default=_json_default),
         )
         entry.setdefault("aggregations", []).append({
             "id": agg_id,
