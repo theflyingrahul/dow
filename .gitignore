@@ -5,3 +5,27 @@ __pycache__/
 build/
 dist/
 .dow/
+
+# LLM assistant instructions and agent/tooling config -- kept on this machine only,
+# never version-controlled. Scrubbed from history 2026-08-16 (author decision).
+CLAUDE.md
+AGENTS.md
+AGENT.md
+GEMINI.md
+.claude/
+.github/copilot-instructions.md
+.github/COPILOT.md
+.github/agents/
+.github/prompts/
+.github/instructions/
+.vscode/mcp.json
+.mcp.json
+.cursorrules
+.cursor/
+.opencode/
+opencode.json
+.codex/
+.aider*
+.windsurfrules
+.clinerules
+.continue/
