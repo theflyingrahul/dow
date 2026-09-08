@@ -521,6 +521,14 @@ def select_cohort(store: Store, name: str, versions=None, tag: Optional[str] = N
 
 
 def _member_label(store: Store, name: str, vid: str) -> str:
+    cohort_label = (
+        store.get_record(name, vid)
+        .get("runtime", {})
+        .get("cohort", {})
+        .get("label")
+    )
+    if cohort_label:
+        return str(cohort_label)
     tags = store.meta(name, vid).get("tags", []) or []
     return str(tags[0]) if tags else vid
 

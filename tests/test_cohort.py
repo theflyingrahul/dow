@@ -235,6 +235,7 @@ def test_capture_cohort_commits_ordered_members_and_aggregates_only_them(tmp_pat
         ("a", "v1"), ("b", "v2"),
     ]
     assert result["aggregation"]["members"] == ["v1", "v2"]
+    assert result["aggregation"]["labels"] == ["a", "b"]
     store = Store(tmp_path)
     first = store.get_record("probe", "v1")
     second = store.get_record("probe", "v2")
