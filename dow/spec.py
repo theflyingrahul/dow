@@ -2,13 +2,37 @@
 from __future__ import annotations
 
 import dataclasses
+import copy
 import hashlib
 import json
+import re
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any
 
 import yaml
+
+
+COHORT_SUFFIX = ".cohort.yaml"
+_SAFE_COMPONENT = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]*")
+
+
+def _safe_component(value: Any, field_name: str) -> str:
+    value = str(value or "")
+    if value in {".", ".."} or _SAFE_COMPONENT.fullmatch(value) is None:
+        raise ValueError(f"{field_name} must be a safe component")
+    return value
+
+
+def _merge_mapping(base: dict, overrides: dict) -> dict:
+    """Recursively merge mappings; replace every non-mapping value."""
+    merged = copy.deepcopy(base)
+    for key, value in overrides.items():
+        if isinstance(value, dict) and isinstance(merged.get(key), dict):
+            merged[key] = _merge_mapping(merged[key], value)
+        else:
+            merged[key] = copy.deepcopy(value)
+    return merged
 
 
 @dataclass
@@ -108,6 +132,95 @@ class InferenceSpec:
         """Stable short hash of the full specification."""
         payload = json.dumps(self.to_dict(), sort_keys=True, ensure_ascii=False)
         return hashlib.sha256(payload.encode("utf-8")).hexdigest()[:12]
+
+
+@dataclass(frozen=True)
+class CohortMember:
+    """One labelled override of a cohort's base inference specification."""
+
+    label: str
+    message: str = ""
+    overrides: dict = field(default_factory=dict)
+
+    @staticmethod
+    def from_dict(data: dict) -> "CohortMember":
+        if not isinstance(data, dict):
+            raise ValueError("cohort member must be a mapping")
+        overrides = data.get("overrides") or {}
+        if not isinstance(overrides, dict):
+            raise ValueError("cohort member overrides must be a mapping")
+        return CohortMember(
+            label=_safe_component(data.get("label"), "cohort member label"),
+            message=str(data.get("message") or ""),
+            overrides=copy.deepcopy(overrides),
+        )
+
+    def to_dict(self) -> dict:
+        value = {"label": self.label, "overrides": copy.deepcopy(self.overrides)}
+        if self.message:
+            value["message"] = self.message
+        return value
+
+
+@dataclass(frozen=True)
+class CohortSpec:
+    """An ordered set of variants of one base :class:`InferenceSpec`."""
+
+    name: str
+    spec: str
+    members: tuple
+    spec_version: int = 1
+
+    @staticmethod
+    def load(path) -> "CohortSpec":
+        data = yaml.safe_load(Path(path).read_text(encoding="utf-8")) or {}
+        return CohortSpec.from_dict(data)
+
+    @staticmethod
+    def from_dict(data: dict) -> "CohortSpec":
+        if not isinstance(data, dict):
+            raise ValueError("cohort manifest must be a mapping")
+        name = _safe_component(data.get("name"), "cohort name")
+        spec = _safe_component(data.get("spec"), "cohort base spec")
+        raw_members = data.get("members")
+        if not isinstance(raw_members, list) or not raw_members:
+            raise ValueError("cohort must contain at least one member")
+        members = tuple(CohortMember.from_dict(item) for item in raw_members)
+        labels = [member.label for member in members]
+        if len(set(labels)) != len(labels):
+            raise ValueError("cohort member labels must be unique")
+        version = data.get("spec_version", 1)
+        if not isinstance(version, int) or isinstance(version, bool) or version != 1:
+            raise ValueError("cohort spec_version must be 1")
+        return CohortSpec(name=name, spec=spec, members=members, spec_version=version)
+
+    def to_dict(self) -> dict:
+        return {
+            "spec_version": self.spec_version,
+            "name": self.name,
+            "kind": "cohort",
+            "spec": self.spec,
+            "members": [member.to_dict() for member in self.members],
+        }
+
+    def materialize(self, base: InferenceSpec):
+        """Return ordered ``(member, merged spec)`` pairs without mutating ``base``."""
+        if base.name != self.spec:
+            raise ValueError(
+                f"cohort base spec is {self.spec!r}, but loaded spec is {base.name!r}")
+        materialized = []
+        for member in self.members:
+            if "name" in member.overrides:
+                raise ValueError("cohort member may not override the base spec name")
+            data = _merge_mapping(base.to_dict(), member.overrides)
+            materialized.append((member, InferenceSpec.from_dict(data)))
+        return materialized
+
+    def fingerprint(self, base: InferenceSpec) -> str:
+        """Full SHA-256 binding the base spec and ordered cohort manifest."""
+        payload = {"cohort": self.to_dict(), "base_spec": base.to_dict()}
+        encoded = json.dumps(payload, sort_keys=True, ensure_ascii=False).encode("utf-8")
+        return hashlib.sha256(encoded).hexdigest()
 
 
 @dataclass
