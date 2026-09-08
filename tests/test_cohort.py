@@ -9,6 +9,7 @@ import copy
 
 import pytest
 
+from dow import runner
 from dow.spec import CohortSpec, InferenceSpec
 
 
@@ -117,3 +118,57 @@ def test_cohort_fingerprint_binds_base_spec_member_order_and_overrides():
     assert first.fingerprint(base) == identical.fingerprint(base)
     assert first.fingerprint(base) != reversed_grid.fingerprint(base)
     assert first.fingerprint(base) != first.fingerprint(changed_base)
+
+
+def _artifact_spec(path):
+    return InferenceSpec.from_dict({
+        **BASE,
+        "inputs": [{"artifact": str(path)}],
+    })
+
+
+def test_directory_artifact_digest_is_order_independent_and_binds_nested_bytes(tmp_path):
+    """Filesystem enumeration order must not change provenance, but content must."""
+    left = tmp_path / "left"
+    right = tmp_path / "right"
+    (left / "nested").mkdir(parents=True)
+    (right / "nested").mkdir(parents=True)
+    (left / "z.txt").write_text("z", encoding="utf-8")
+    (left / "nested" / "a.txt").write_text("a", encoding="utf-8")
+    (right / "nested" / "a.txt").write_text("a", encoding="utf-8")
+    (right / "z.txt").write_text("z", encoding="utf-8")
+
+    left_record = runner.input_artifacts(_artifact_spec(left), tmp_path)[0]
+    right_record = runner.input_artifacts(_artifact_spec(right), tmp_path)[0]
+
+    assert left_record["kind"] == "directory"
+    assert left_record["files"] == 2
+    assert left_record["bytes"] == 2
+    assert left_record["sha256"] == right_record["sha256"]
+    (right / "z.txt").write_text("changed", encoding="utf-8")
+    changed = runner.input_artifacts(_artifact_spec(right), tmp_path)[0]
+    assert changed["sha256"] != left_record["sha256"]
+
+
+def test_file_artifact_retains_hash_and_reports_kind(tmp_path):
+    """Adding directory support must not weaken the existing file contract."""
+    artifact = tmp_path / "one.bin"
+    artifact.write_bytes(b"abc")
+    record = runner.input_artifacts(_artifact_spec(artifact), tmp_path)[0]
+    assert record["kind"] == "file"
+    assert record["bytes"] == 3
+    assert record["sha256"] == (
+        "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"
+    )
+    assert "files" not in record
+
+
+def test_directory_artifact_rejects_symlinks(tmp_path):
+    """A symlink must not let a declared tree depend on undeclared external bytes."""
+    external = tmp_path / "external.txt"
+    external.write_text("outside", encoding="utf-8")
+    artifact = tmp_path / "tree"
+    artifact.mkdir()
+    (artifact / "link").symlink_to(external)
+    with pytest.raises(ValueError, match="symlink"):
+        runner.input_artifacts(_artifact_spec(artifact), tmp_path)

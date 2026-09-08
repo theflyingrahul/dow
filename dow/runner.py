@@ -35,7 +35,46 @@ def _hash_file(path: Path) -> dict:
         for chunk in iter(lambda: fh.read(1 << 20), b""):
             h.update(chunk)
             size += len(chunk)
-    return {"sha256": h.hexdigest(), "bytes": size}
+    return {"kind": "file", "sha256": h.hexdigest(), "bytes": size}
+
+
+def _hash_directory(path: Path) -> dict:
+    """Deterministically bind every regular file in ``path`` without following links."""
+    h = hashlib.sha256()
+    total = 0
+    files = 0
+    entries = sorted(path.rglob("*"), key=lambda item: item.relative_to(path).as_posix())
+    for item in entries:
+        if item.is_symlink():
+            raise ValueError(f"directory artifact contains a symlink: {item}")
+        if not item.is_file():
+            continue
+        relative = item.relative_to(path).as_posix().encode("utf-8")
+        size = item.stat().st_size
+        h.update(relative)
+        h.update(b"\0")
+        h.update(str(size).encode("ascii"))
+        h.update(b"\0")
+        with item.open("rb") as fh:
+            for chunk in iter(lambda: fh.read(1 << 20), b""):
+                h.update(chunk)
+        h.update(b"\0")
+        total += size
+        files += 1
+    return {
+        "kind": "directory",
+        "sha256": h.hexdigest(),
+        "bytes": total,
+        "files": files,
+    }
+
+
+def _hash_artifact(path: Path) -> dict:
+    if path.is_symlink():
+        raise ValueError(f"input artifact may not be a symlink: {path}")
+    if path.is_dir():
+        return _hash_directory(path)
+    return _hash_file(path)
 
 
 def input_artifacts(spec, base_dir=None) -> list:
@@ -53,7 +92,7 @@ def input_artifacts(spec, base_dir=None) -> list:
             path = (base / ref).resolve() if not Path(ref).is_absolute() else Path(ref)
             entry = {"artifact": ref, "declared_sha256": item.get("sha256")}
             if path.exists():
-                entry.update(_hash_file(path))
+                entry.update(_hash_artifact(path))
             else:
                 entry["missing"] = True
             out.append(entry)
