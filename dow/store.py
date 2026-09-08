@@ -16,7 +16,10 @@ import dataclasses
 import hashlib
 import json
 import os
+import socket
 import tempfile
+from contextlib import contextmanager
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
 
@@ -27,6 +30,12 @@ STORE_DIR = ".dow"
 ARTIFACTS_DIR = "artifacts"
 AGGREGATIONS_DIR = "aggregations"
 SUITES_SUBDIR = "_suites"
+COHORTS_DIR = "cohorts"
+LOCKS_DIR = "locks"
+
+
+class StoreLockError(RuntimeError):
+    """A durable workflow already has another active writer."""
 
 
 def _safe_component(value, kind: str) -> str:
@@ -129,7 +138,7 @@ class Store:
         (self.dir / "versions").mkdir(exist_ok=True)
         self.artifacts_dir.mkdir(exist_ok=True)
         gitignore = self.dir / ".gitignore"
-        wanted = [f"{ARTIFACTS_DIR}/", "*.tmp"]
+        wanted = [f"{ARTIFACTS_DIR}/", f"{LOCKS_DIR}/", "*.tmp"]
         existing = (
             gitignore.read_text(encoding="utf-8").splitlines()
             if gitignore.exists() else []
@@ -330,6 +339,51 @@ class Store:
         if not path.exists():
             raise FileNotFoundError(f"Unknown version: {version_id}")
         return self._internalize(json.loads(path.read_text(encoding="utf-8")))
+
+    # -- declarative cohort progress ------------------------------------ #
+    def save_cohort(self, cohort_name: str, record: dict) -> None:
+        """Atomically persist one manifest-driven cohort's resumable progress."""
+        cohort_name = _safe_component(cohort_name, "cohort name")
+        path = self.dir / COHORTS_DIR / f"{cohort_name}.json"
+        _atomic_write_text(path, json.dumps(record, indent=2, default=_json_default))
+        self._commit(f"Record cohort {cohort_name} progress")
+
+    def get_cohort(self, cohort_name: str) -> dict:
+        cohort_name = _safe_component(cohort_name, "cohort name")
+        path = self.dir / COHORTS_DIR / f"{cohort_name}.json"
+        if not path.exists():
+            raise FileNotFoundError(f"Unknown cohort: {cohort_name}")
+        return json.loads(path.read_text(encoding="utf-8"))
+
+    @contextmanager
+    def cohort_lock(self, cohort_name: str):
+        """Refuse a second concurrent writer for one manifest-driven cohort."""
+        cohort_name = _safe_component(cohort_name, "cohort name")
+        lock_dir = self.dir / LOCKS_DIR
+        lock_dir.mkdir(parents=True, exist_ok=True)
+        path = lock_dir / f"cohort-{cohort_name}.lock"
+        payload = json.dumps({
+            "pid": os.getpid(),
+            "hostname": socket.gethostname(),
+            "created": datetime.now(timezone.utc).isoformat(),
+        }).encode("utf-8")
+        try:
+            descriptor = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+        except FileExistsError as exc:
+            raise StoreLockError(
+                f"cohort {cohort_name!r} is locked by another writer"
+            ) from exc
+        try:
+            with os.fdopen(descriptor, "wb") as handle:
+                handle.write(payload)
+                handle.flush()
+                os.fsync(handle.fileno())
+            yield
+        finally:
+            try:
+                path.unlink()
+            except FileNotFoundError:
+                pass
 
     # -- tags ------------------------------------------------------------- #
     def add_tag(self, spec_name: str, version_id: str, tag: str) -> None:

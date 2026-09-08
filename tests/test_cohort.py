@@ -6,11 +6,12 @@ weak validation makes resume ambiguous, and unstable identity can join different
 from __future__ import annotations
 
 import copy
-
 import pytest
+import yaml
 
-from dow import runner
+from dow import runner, service
 from dow.spec import CohortSpec, InferenceSpec
+from dow.store import Store
 
 
 BASE = {
@@ -172,3 +173,128 @@ def test_directory_artifact_rejects_symlinks(tmp_path):
     (artifact / "link").symlink_to(external)
     with pytest.raises(ValueError, match="symlink"):
         runner.input_artifacts(_artifact_spec(artifact), tmp_path)
+
+
+def _cohort_project(root):
+    specs = root / "specs"
+    specs.mkdir(parents=True)
+    (root / "ops.py").write_text(
+        "def run(req):\n"
+        "    variant = req.config['params']['variant']\n"
+        "    return {'output': variant, 'payload': {'variant': variant}}\n",
+        encoding="utf-8",
+    )
+    artifact_a = root / "run-a"
+    artifact_b = root / "run-b"
+    artifact_a.mkdir()
+    artifact_b.mkdir()
+    (artifact_a / "result.json").write_text('{"value": 1}\n', encoding="utf-8")
+    (artifact_b / "result.json").write_text('{"value": 2}\n', encoding="utf-8")
+    base = {
+        "name": "probe",
+        "task": "cohort integration",
+        "params": {"variant": "base", "fixed": True},
+        "model": {"provider": "python", "name": "ops.py:run", "version": "1"},
+        "sampling": {"seed": 7},
+        "evaluation": {"embedding_model": "none", "samples": 1},
+        "inputs": [{"artifact": str(artifact_a)}],
+    }
+    cohort = {
+        "name": "grid",
+        "spec": "probe",
+        "members": [
+            {"label": "a", "overrides": {
+                "params": {"variant": "a"},
+                "inputs": [{"artifact": str(artifact_a)}],
+            }},
+            {"label": "b", "message": "second", "overrides": {
+                "params": {"variant": "b"},
+                "inputs": [{"artifact": str(artifact_b)}],
+            }},
+        ],
+    }
+    base_path = specs / "probe.yaml"
+    cohort_path = specs / "grid.cohort.yaml"
+    base_path.write_text(yaml.safe_dump(base, sort_keys=False), encoding="utf-8")
+    cohort_path.write_text(yaml.safe_dump(cohort, sort_keys=False), encoding="utf-8")
+    return base_path, cohort_path
+
+
+def test_capture_cohort_commits_ordered_members_and_aggregates_only_them(tmp_path):
+    """Global history must never leak an unrelated version into a cohort result."""
+    base_path, _ = _cohort_project(tmp_path)
+    original_base = base_path.read_text(encoding="utf-8")
+
+    result = service.capture_cohort(tmp_path, "grid")
+
+    assert base_path.read_text(encoding="utf-8") == original_base
+    assert result["cohort"]["status"] == "complete"
+    assert [(m["label"], m["version"]) for m in result["cohort"]["completed"]] == [
+        ("a", "v1"), ("b", "v2"),
+    ]
+    assert result["aggregation"]["members"] == ["v1", "v2"]
+    store = Store(tmp_path)
+    first = store.get_record("probe", "v1")
+    second = store.get_record("probe", "v2")
+    assert first["config"]["params"] == {"variant": "a", "fixed": True}
+    assert second["config"]["params"] == {"variant": "b", "fixed": True}
+    assert first["runtime"]["cohort"]["label"] == "a"
+    assert second["runtime"]["cohort"]["label"] == "b"
+    assert first["runtime"]["cohort"]["id"] == second["runtime"]["cohort"]["id"]
+    assert first["runtime"]["input_artifacts"][0]["kind"] == "directory"
+
+
+def test_capture_cohort_resumes_only_the_exact_completed_prefix(tmp_path, monkeypatch):
+    """A crash after member one must resume member two without rerunning member one."""
+    _cohort_project(tmp_path)
+    real_execute = service.execute
+    calls = 0
+
+    def interrupt_second(spec, base_dir=None):
+        nonlocal calls
+        calls += 1
+        if calls == 2:
+            raise RuntimeError("simulated interruption")
+        return real_execute(spec, base_dir=base_dir)
+
+    monkeypatch.setattr(service, "execute", interrupt_second)
+    with pytest.raises(RuntimeError, match="simulated interruption"):
+        service.capture_cohort(tmp_path, "grid")
+    partial = service.read_cohort(tmp_path, "grid")
+    assert partial["status"] == "partial"
+    assert [(m["label"], m["version"]) for m in partial["completed"]] == [("a", "v1")]
+
+    monkeypatch.setattr(service, "execute", real_execute)
+    resumed = service.capture_cohort(tmp_path, "grid", resume=True)
+    assert [(m["label"], m["version"]) for m in resumed["cohort"]["completed"]] == [
+        ("a", "v1"), ("b", "v2"),
+    ]
+    assert len(Store(tmp_path).list_versions("probe")) == 2
+
+
+def test_capture_cohort_refuses_resume_after_manifest_or_artifact_change(tmp_path):
+    """A changed grid or changed input bytes must require a new cohort identity."""
+    _, cohort_path = _cohort_project(tmp_path)
+    service.capture_cohort(tmp_path, "grid")
+    data = yaml.safe_load(cohort_path.read_text(encoding="utf-8"))
+    data["members"][1]["overrides"]["params"]["variant"] = "changed"
+    cohort_path.write_text(yaml.safe_dump(data, sort_keys=False), encoding="utf-8")
+    with pytest.raises(service.DowError, match="cohort identity changed"):
+        service.capture_cohort(tmp_path, "grid", resume=True)
+
+    data["members"][1]["overrides"]["params"]["variant"] = "b"
+    cohort_path.write_text(yaml.safe_dump(data, sort_keys=False), encoding="utf-8")
+    (tmp_path / "run-b" / "result.json").write_text('{"value": 99}\n', encoding="utf-8")
+    with pytest.raises(service.DowError, match="cohort identity changed"):
+        service.capture_cohort(tmp_path, "grid", resume=True)
+
+
+def test_capture_cohort_refuses_concurrent_writer(tmp_path):
+    """Two writers must not allocate overlapping version ids for one cohort."""
+    _cohort_project(tmp_path)
+    store = Store(tmp_path)
+    store.ensure()
+    with store.cohort_lock("grid"):
+        with pytest.raises(service.DowError, match="locked"):
+            service.capture_cohort(tmp_path, "grid")
+    assert not (tmp_path / ".dow" / "locks" / "cohort-grid.lock").exists()

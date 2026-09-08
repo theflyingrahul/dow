@@ -11,6 +11,8 @@ the two surfaces can never drift apart.
 """
 from __future__ import annotations
 
+import hashlib
+import json
 import re
 import shutil
 import tempfile
@@ -31,9 +33,9 @@ from .evaluators import (
 )
 from .metrics import output_difference, semantic_drift, stability
 from .metrics import verdict as compute_verdict
-from .runner import execute
-from .spec import InferenceSpec, SuiteSpec, flatten
-from .store import Store
+from .runner import execute, input_artifacts
+from .spec import COHORT_SUFFIX, CohortSpec, InferenceSpec, SuiteSpec, flatten
+from .store import Store, StoreLockError
 
 SPECS_DIR = "specs"
 SUITE_SUFFIX = ".suite.yaml"
@@ -201,7 +203,45 @@ def spec_files(root) -> list:
     d = specs_dir(root)
     if not d.is_dir():
         return []
-    return sorted(f for f in d.glob("*.yaml") if not f.name.endswith(SUITE_SUFFIX))
+    return sorted(
+        f for f in d.glob("*.yaml")
+        if not f.name.endswith(SUITE_SUFFIX) and not f.name.endswith(COHORT_SUFFIX)
+    )
+
+
+def cohort_path(root, name: str) -> Path:
+    return specs_dir(root) / f"{name}{COHORT_SUFFIX}"
+
+
+def cohort_files(root) -> list:
+    d = specs_dir(root)
+    return sorted(d.glob(f"*{COHORT_SUFFIX}")) if d.is_dir() else []
+
+
+def find_cohort_name(root, name: Optional[str]) -> Optional[str]:
+    if name:
+        stem = Path(name).name
+        for suffix in (COHORT_SUFFIX, ".yaml"):
+            if stem.endswith(suffix):
+                stem = stem[: -len(suffix)]
+                break
+        return stem
+    files = cohort_files(root)
+    if len(files) == 1:
+        return files[0].name[: -len(COHORT_SUFFIX)]
+    if len(files) > 1:
+        names = ", ".join(f.name[: -len(COHORT_SUFFIX)] for f in files)
+        raise DowError(f"Multiple cohorts found; pass cohort=NAME. Found: {names}")
+    return None
+
+
+def need_cohort(root, name: Optional[str]) -> str:
+    resolved = find_cohort_name(root, name)
+    if not resolved:
+        raise DowError(
+            "No cohort manifest found. Create specs/<name>.cohort.yaml first."
+        )
+    return resolved
 
 
 def suite_path(root, name: str) -> Path:
@@ -887,7 +927,31 @@ def threshold_gate(value, minimum=None, maximum=None, metric: Optional[str] = No
     return gate
 
 
-def commit(root, name: Optional[str] = None, message: Optional[str] = None, from_version: Optional[str] = None) -> dict:
+def _commit_loaded_spec(store: Store, root: Path, spec: InferenceSpec, *,
+                        message: str = "", parent: Optional[str] = None,
+                        cohort_meta: Optional[dict] = None):
+    """Execute and commit an already-validated spec without rewriting its YAML."""
+    record = execute(spec, base_dir=root)
+    if cohort_meta is not None:
+        expected_artifacts = cohort_meta.get("input_artifacts")
+        if record.get("runtime", {}).get("input_artifacts") != expected_artifacts:
+            raise DowError("cohort input artifact changed while its member was running")
+        record["runtime"]["cohort"] = {
+            key: cohort_meta[key] for key in ("id", "name", "label", "member_fingerprint")
+        }
+    vid = store.add_version(spec.name, record, message, parent=parent)
+    eval_result, eval_error = None, None
+    refs = record["config"].get("evaluation", {}).get("metrics", [])
+    if refs:
+        try:
+            eval_result = ensure_eval(store, spec.name, vid, root)
+        except Exception as exc:  # noqa: BLE001 - capture survives project evaluator bugs
+            eval_error = str(exc)
+    return vid, record, eval_result, eval_error
+
+
+def commit(root, name: Optional[str] = None, message: Optional[str] = None,
+           from_version: Optional[str] = None) -> dict:
     """Run the spec and capture its behavior as a new version."""
     root = Path(root)
     name = need_spec(root, name)
@@ -898,11 +962,13 @@ def commit(root, name: Optional[str] = None, message: Optional[str] = None, from
     store.ensure()
     prior = store.list_versions(name)
     parent = resolve(store, name, from_version) if from_version else None
-    record = execute(InferenceSpec.load(path), base_dir=root)
+    vid, record, eval_result, eval_error = _commit_loaded_spec(
+        store, root, InferenceSpec.load(path),
+        message=message or "", parent=parent,
+    )
     note = ""
     if prior and prior[-1]["fingerprint"] == record["spec_fingerprint"]:
         note = f"same configuration as {prior[-1]['id']} - re-running measures non-determinism"
-    vid = store.add_version(name, record, message or "", parent=parent)
     runtime = record["runtime"]
     result = {
         "spec": name,
@@ -916,14 +982,168 @@ def commit(root, name: Optional[str] = None, message: Optional[str] = None, from
         "note": note,
         "outputs": [s["output"] for s in record["samples"]],
     }
-    refs = record["config"].get("evaluation", {}).get("metrics", [])
-    if refs:  # evaluators run automatically at capture time, but never block the commit
-        try:
-            ev = ensure_eval(store, name, vid, root)
-            result["eval"] = (ev or {}).get("metrics", {})
-        except Exception as exc:  # noqa: BLE001 - an evaluator bug must not lose the version
-            result["evalError"] = str(exc)
+    if eval_result is not None:
+        result["eval"] = eval_result.get("metrics", {})
+    if eval_error is not None:
+        result["evalError"] = eval_error
     return result
+
+
+def _full_spec_fingerprint(spec: InferenceSpec) -> str:
+    encoded = json.dumps(
+        spec.to_dict(), sort_keys=True, ensure_ascii=False, separators=(",", ":")
+    ).encode("utf-8")
+    return hashlib.sha256(encoded).hexdigest()
+
+
+def _load_cohort_inputs(root: Path, cohort: CohortSpec, base: InferenceSpec):
+    expected = []
+    for member, spec in cohort.materialize(base):
+        expected.append({
+            "label": member.label,
+            "message": member.message,
+            "member_fingerprint": _full_spec_fingerprint(spec),
+            "spec_fingerprint": spec.fingerprint(),
+            "input_artifacts": input_artifacts(spec, root),
+            "spec": spec,
+        })
+    identity = {
+        "schema_version": 1,
+        "manifest_fingerprint": cohort.fingerprint(base),
+        "members": [{
+            key: item[key]
+            for key in ("label", "member_fingerprint", "input_artifacts")
+        } for item in expected],
+    }
+    encoded = json.dumps(
+        identity, sort_keys=True, ensure_ascii=False, separators=(",", ":")
+    ).encode("utf-8")
+    return hashlib.sha256(encoded).hexdigest(), identity, expected
+
+
+def _validate_completed_cohort(store: Store, record: dict, expected: list) -> None:
+    completed = record.get("completed")
+    if not isinstance(completed, list) or len(completed) > len(expected):
+        raise DowError("saved cohort progress is invalid")
+    expected_prefix = expected[:len(completed)]
+    for saved, wanted in zip(completed, expected_prefix):
+        if not isinstance(saved, dict) or any(
+            saved.get(key) != wanted[key]
+            for key in ("label", "member_fingerprint")
+        ):
+            raise DowError("saved cohort is not an exact completed prefix")
+        version = saved.get("version")
+        try:
+            captured = store.get_record(record["spec"], version)
+        except (FileNotFoundError, ValueError) as exc:
+            raise DowError("saved cohort references a missing version") from exc
+        runtime = captured.get("runtime", {})
+        meta = runtime.get("cohort", {})
+        if (
+            meta.get("id") != record.get("cohort_id")
+            or meta.get("name") != record.get("name")
+            or meta.get("label") != wanted["label"]
+            or meta.get("member_fingerprint") != wanted["member_fingerprint"]
+            or runtime.get("input_artifacts") != wanted["input_artifacts"]
+            or captured.get("spec_fingerprint") != wanted["spec_fingerprint"]
+        ):
+            raise DowError("saved cohort version binding is invalid")
+    recorded_versions = {item.get("version") for item in completed}
+    for version in store.list_versions(record["spec"]):
+        captured = store.get_record(record["spec"], version["id"])
+        meta = captured.get("runtime", {}).get("cohort", {})
+        if meta.get("id") == record.get("cohort_id") and version["id"] not in recorded_versions:
+            raise DowError("dow store contains an unrecorded version for this cohort")
+
+
+def read_cohort(root, name: Optional[str] = None) -> dict:
+    """Return the durable progress record for one declarative cohort."""
+    root = Path(root)
+    name = need_cohort(root, name)
+    try:
+        return Store(root).get_cohort(name)
+    except (FileNotFoundError, ValueError) as exc:
+        raise DowError(str(exc)) from exc
+
+
+def capture_cohort(root, name: Optional[str] = None, resume: bool = False,
+                   plot: bool = False) -> dict:
+    """Capture an ordered cohort and aggregate exactly its committed versions."""
+    root = Path(root)
+    name = need_cohort(root, name)
+    manifest_path = cohort_path(root, name)
+    cohort = CohortSpec.load(manifest_path)
+    base_path = spec_path(root, cohort.spec)
+    if not base_path.exists():
+        raise DowError(f"Base spec not found: {SPECS_DIR}/{cohort.spec}.yaml")
+    base = InferenceSpec.load(base_path)
+    cohort_id, identity, expected = _load_cohort_inputs(root, cohort, base)
+    store = Store(root)
+    store.ensure()
+    try:
+        with store.cohort_lock(name):
+            try:
+                record = store.get_cohort(name)
+            except FileNotFoundError:
+                record = None
+            if record is not None:
+                if not resume:
+                    raise DowError(
+                        f"cohort {name!r} already exists; use resume=True for the exact manifest"
+                    )
+                if record.get("cohort_id") != cohort_id:
+                    raise DowError("cohort identity changed; start a new cohort name")
+                _validate_completed_cohort(store, record, expected)
+                if record.get("status") == "complete" and record.get("aggregation_id"):
+                    aggregation = store.get_aggregation(cohort.spec, record["aggregation_id"])
+                    return {"cohort": record, "aggregation": aggregation}
+            else:
+                record = {
+                    **identity,
+                    "name": name,
+                    "spec": cohort.spec,
+                    "cohort_id": cohort_id,
+                    "status": "partial",
+                    "completed": [],
+                    "created": _now_iso(),
+                    "aggregation_id": None,
+                }
+                store.save_cohort(name, record)
+
+            previous = record["completed"][-1]["version"] if record["completed"] else None
+            for item in expected[len(record["completed"]):]:
+                meta = {
+                    "id": cohort_id,
+                    "name": name,
+                    "label": item["label"],
+                    "member_fingerprint": item["member_fingerprint"],
+                    "input_artifacts": item["input_artifacts"],
+                }
+                version, _captured, _evaluation, _eval_error = _commit_loaded_spec(
+                    store, root, item["spec"],
+                    message=item["message"] or item["label"],
+                    parent=previous,
+                    cohort_meta=meta,
+                )
+                record["completed"].append({
+                    "label": item["label"],
+                    "member_fingerprint": item["member_fingerprint"],
+                    "version": version,
+                })
+                store.save_cohort(name, record)
+                previous = version
+
+            versions = [item["version"] for item in record["completed"]]
+            aggregation = aggregate(
+                root, cohort.spec, versions=versions, plot=plot,
+            )
+            record["status"] = "complete"
+            record["completed_at"] = aggregation["created"]
+            record["aggregation_id"] = aggregation["id"]
+            store.save_cohort(name, record)
+            return {"cohort": record, "aggregation": aggregation}
+    except StoreLockError as exc:
+        raise DowError(str(exc)) from exc
 
 
 def compare(root, name: Optional[str] = None, a: Optional[str] = None, b: Optional[str] = None,
