@@ -1021,7 +1021,30 @@ def _load_cohort_inputs(root: Path, cohort: CohortSpec, base: InferenceSpec):
     return hashlib.sha256(encoded).hexdigest(), identity, expected
 
 
-def _validate_completed_cohort(store: Store, record: dict, expected: list) -> None:
+def _validate_cohort_version(captured: dict, record: dict, wanted: dict) -> None:
+    """Authenticate one captured version against one manifest member."""
+    runtime = captured.get("runtime", {})
+    meta = runtime.get("cohort", {})
+    if (
+        meta.get("id") != record.get("cohort_id")
+        or meta.get("name") != record.get("name")
+        or meta.get("label") != wanted["label"]
+        or meta.get("member_fingerprint") != wanted["member_fingerprint"]
+        or runtime.get("input_artifacts") != wanted["input_artifacts"]
+        or captured.get("spec_fingerprint") != wanted["spec_fingerprint"]
+    ):
+        raise DowError("saved cohort version binding is invalid")
+
+
+def _validate_completed_cohort(store: Store, record: dict, expected: list) -> bool:
+    """Validate saved progress and adopt one exact post-commit crash orphan.
+
+    ``Store.add_version`` is deliberately durable before the cohort checkpoint.
+    If the process dies in that narrow interval, runtime cohort metadata lets us
+    prove that the one unrecorded version is exactly the next member and adopt it
+    instead of executing the member twice. More than one orphan is impossible for
+    this writer protocol and therefore fails closed.
+    """
     completed = record.get("completed")
     if not isinstance(completed, list) or len(completed) > len(expected):
         raise DowError("saved cohort progress is invalid")
@@ -1037,23 +1060,38 @@ def _validate_completed_cohort(store: Store, record: dict, expected: list) -> No
             captured = store.get_record(record["spec"], version)
         except (FileNotFoundError, ValueError) as exc:
             raise DowError("saved cohort references a missing version") from exc
-        runtime = captured.get("runtime", {})
-        meta = runtime.get("cohort", {})
-        if (
-            meta.get("id") != record.get("cohort_id")
-            or meta.get("name") != record.get("name")
-            or meta.get("label") != wanted["label"]
-            or meta.get("member_fingerprint") != wanted["member_fingerprint"]
-            or runtime.get("input_artifacts") != wanted["input_artifacts"]
-            or captured.get("spec_fingerprint") != wanted["spec_fingerprint"]
-        ):
-            raise DowError("saved cohort version binding is invalid")
-    recorded_versions = {item.get("version") for item in completed}
-    for version in store.list_versions(record["spec"]):
-        captured = store.get_record(record["spec"], version["id"])
+        _validate_cohort_version(captured, record, wanted)
+
+    cohort_versions = []
+    for version_meta in store.list_versions(record["spec"]):
+        captured = store.get_record(record["spec"], version_meta["id"])
         meta = captured.get("runtime", {}).get("cohort", {})
-        if meta.get("id") == record.get("cohort_id") and version["id"] not in recorded_versions:
-            raise DowError("dow store contains an unrecorded version for this cohort")
+        if meta.get("id") == record.get("cohort_id"):
+            cohort_versions.append((version_meta, captured))
+
+    recorded_ids = [item.get("version") for item in completed]
+    captured_ids = [meta["id"] for meta, _ in cohort_versions]
+    if captured_ids[:len(recorded_ids)] != recorded_ids:
+        raise DowError("saved cohort versions are not the captured cohort prefix")
+    extras = cohort_versions[len(recorded_ids):]
+    if len(extras) > 1:
+        raise DowError("dow store contains multiple unrecorded versions for this cohort")
+    if not extras:
+        return False
+    if len(cohort_versions) > len(expected):
+        raise DowError("dow store contains an unexpected version for this cohort")
+
+    version_meta, captured = extras[0]
+    wanted = expected[len(completed)]
+    _validate_cohort_version(captured, record, wanted)
+    if completed and version_meta.get("parent") != completed[-1].get("version"):
+        raise DowError("unrecorded cohort version has an invalid parent")
+    completed.append({
+        "label": wanted["label"],
+        "member_fingerprint": wanted["member_fingerprint"],
+        "version": version_meta["id"],
+    })
+    return True
 
 
 def read_cohort(root, name: Optional[str] = None) -> dict:
@@ -1093,7 +1131,8 @@ def capture_cohort(root, name: Optional[str] = None, resume: bool = False,
                     )
                 if record.get("cohort_id") != cohort_id:
                     raise DowError("cohort identity changed; start a new cohort name")
-                _validate_completed_cohort(store, record, expected)
+                if _validate_completed_cohort(store, record, expected):
+                    store.save_cohort(name, record)
                 if record.get("status") == "complete" and record.get("aggregation_id"):
                     aggregation = store.get_aggregation(cohort.spec, record["aggregation_id"])
                     return {"cohort": record, "aggregation": aggregation}

@@ -58,6 +58,8 @@ dow history        # list captured versions, stability, and tags
 dow inspect v1     # one version's spec, runtime capture, outputs, tags, eval
 dow tree           # visualize how behavior evolves across versions
 dow tree -o evolution.md   # export a Mermaid diagram; open the Markdown preview
+# for a declared grid: create specs/seed_sweep.cohort.yaml, then
+dow cohort seed_sweep      # capture each member in order and aggregate exactly those versions
 ```
 
 Versions are named automatically (v1, v2, ...); refer to them by name, the
@@ -161,6 +163,40 @@ pins a change to a single field also reports how far the coefficient moved. The
 `payload` a comparator reads is any structured per-item data a `python` provider
 returns alongside its text output; dow keeps it out of git (content-addressed
 under `.dow/artifacts/`) and rehydrates it on read.
+
+### Manifest-defined cohort capture
+
+When the full grid is known before execution, `dow cohort` removes the need for a
+project-specific loop. A cohort manifest recursively overrides one base inference
+spec for each ordered member:
+
+```yaml
+# specs/seed_sweep.cohort.yaml
+name: seed_sweep
+spec: probe                         # specs/probe.yaml
+members:
+  - label: seed-10
+    overrides:
+      params: {seed: 10}
+      inputs: [{artifact: runs/seed-10}]
+  - label: seed-20
+    overrides:
+      params: {seed: 20}
+      inputs: [{artifact: runs/seed-20}]
+```
+
+`dow cohort seed_sweep` fingerprints the normalized manifest and base spec, binds
+declared file or directory artifacts by SHA-256, captures each member sequentially,
+checkpoints after every durable version, and aggregates exactly the resulting
+version ids. `dow cohort seed_sweep --resume` continues only when the manifest,
+member order, base spec, input bytes, and captured bindings are unchanged. It also
+recovers the narrow case where a member was committed immediately before a crash
+prevented its checkpoint, without running that member twice. Directory artifacts
+bind every relative path, size, and file byte; symlinks fail closed.
+
+This is orchestration, not domain logic: dow does not interpret the grid or ship
+its operation, metrics, statistics, plots, labels, thresholds, or winner rules.
+Those remain in the consuming project, just like ordinary specs and aggregators.
 
 ### Cohort aggregators (N-way)
 

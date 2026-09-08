@@ -76,9 +76,12 @@ configuration changes.
 Without `resume=True`, an existing cohort record is an error. Resume fails if the base
 spec, member order, overrides, inputs, or existing version bindings differ. A failed
 member leaves earlier committed members resumable and never marks the failed member
-complete. The lock is advisory to this workflow and prevents two cohort commands from
-writing the same cohort concurrently; it does not claim SLURM liveness or distributed
-job scheduling.
+complete. If the process dies after a version commit but before the progress record is
+updated, resume authenticates and adopts that one exact next member from its captured
+cohort metadata; more than one unrecorded member fails closed. The lock is advisory to
+this workflow and prevents two cohort commands from writing the same cohort
+concurrently; it does not claim SLURM liveness, stale-lock recovery, or distributed job
+scheduling.
 
 ## Artifact binding
 

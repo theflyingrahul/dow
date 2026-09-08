@@ -27,6 +27,20 @@ All notable changes to dow are documented here. The format follows
 
 
 ### Added
+- **Manifest-defined resumable cohort capture (`dow cohort`).** An ordered
+  `specs/<name>.cohort.yaml` grid recursively overrides one base inference spec.
+  dow binds the normalized manifest, base spec, and declared input artifacts;
+  captures members sequentially with an atomic checkpoint after every durable
+  version; resumes only the exact completed prefix; and aggregates exactly the
+  versions created by that manifest. A crash after version commit but before the
+  progress checkpoint is recovered by authenticating and adopting that exact next
+  version, never by rerunning it. The same workflow is exposed through
+  `dow_capture_cohort` over MCP.
+- **Deterministic directory-artifact binding.** `{artifact: path}` may now name a
+  directory as well as a file. Its SHA-256 binds the ordered relative POSIX paths,
+  sizes, and bytes of every regular file, with total byte/file counts in runtime
+  provenance. Symlinks fail closed. dow does not interpret any artifact content or
+  add domain-specific operations, metrics, plots, labels, thresholds, or decisions.
 - **Longitudinal trend (`dow trend`) — follow a metric across a spec's *whole*
   version history, not just pairwise.** Where `dow compare` contrasts two
   versions, `dow trend` lines up a metric across every version in commit order so

@@ -1,0 +1,49 @@
+Capture and aggregate an ordered, manifest-defined cohort with exact resume.
+
+Use this when a robustness grid is known before execution and every member is a
+recursive override of one base inference spec. Put the grid in
+specs/<name>.cohort.yaml:
+
+  name: seed_sweep
+  spec: probe
+  members:
+    - label: seed-10
+      overrides:
+        params:
+          seed: 10
+        inputs:
+          - artifact: runs/seed-10
+    - label: seed-20
+      overrides:
+        params:
+          seed: 20
+        inputs:
+          - artifact: runs/seed-20
+
+The base spec remains specs/probe.yaml. Mappings merge recursively; lists,
+scalars, and explicit nulls replace the base value. Member order is significant,
+labels must be unique safe path components, and a member cannot change the base
+spec name.
+
+dow fingerprints the normalized manifest and base spec, binds every declared file
+or directory artifact by SHA-256, captures members in order, and checkpoints after
+each durable version. Directory hashes bind the relative paths, sizes, and bytes of
+all regular files and reject symlinks. The final aggregation contains exactly the
+versions created for this manifest, never unrelated history.
+
+After an interruption, use --resume. Resume fails closed if the base spec,
+manifest, member order, overrides, artifact bytes, or captured version bindings
+changed. If a process dies after committing a member but before saving its progress,
+dow authenticates and adopts that exact next version rather than running it twice.
+An existing cohort is never resumed implicitly.
+
+dow supplies only these generic capture, identity, and resume mechanics. Your base
+spec and project modules still own the operation, provider, metrics, aggregators,
+plots, scientific labels, and decision rules. A process killed without normal
+cleanup can leave .dow/locks/cohort-<name>.lock; remove it only after verifying that
+the recorded PID/host no longer has an active writer.
+
+@examples
+dow cohort seed_sweep
+dow cohort seed_sweep --resume
+dow cohort seed_sweep --plot

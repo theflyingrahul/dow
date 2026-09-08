@@ -497,6 +497,22 @@ def print_aggregation(result: dict) -> None:
     })
 
 
+def print_cohort(record: dict) -> None:
+    """Render one declarative cohort's authenticated progress."""
+    completed = record.get("completed", [])
+    title = (
+        f"[bold]{record.get('name', '')}[/bold]  {record.get('status', 'unknown')}  "
+        f"({len(completed)}/{len(record.get('members', []))} members)"
+    )
+    console.print(Panel.fit(title, title="dow cohort", border_style="green"))
+    table = Table(box=box.SIMPLE, header_style="bold")
+    table.add_column("member")
+    table.add_column("version")
+    for member in completed:
+        table.add_row(str(member.get("label", "")), str(member.get("version", "")))
+    console.print(table)
+
+
 def print_aggregation_list(name: str, aggregations: list) -> None:
     """Render the list of persisted cohort-aggregation bundles for a spec."""
     console.print(

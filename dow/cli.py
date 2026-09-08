@@ -46,7 +46,11 @@ def _spec_files() -> list:
     d = _specs_dir()
     if not d.is_dir():
         return []
-    return sorted(f for f in d.glob("*.yaml") if not f.name.endswith(service.SUITE_SUFFIX))
+    return sorted(
+        f for f in d.glob("*.yaml")
+        if not f.name.endswith(service.SUITE_SUFFIX)
+        and not f.name.endswith(service.COHORT_SUFFIX)
+    )
 
 
 def _find_spec_name(name: Optional[str]) -> Optional[str]:
@@ -243,6 +247,29 @@ def aggregate(
     except service.DowError as exc:
         raise typer.BadParameter(str(exc))
     report.print_aggregation(result)
+
+
+@app.command(**_doc("cohort"))
+def cohort(
+    name: Optional[str] = typer.Argument(
+        None, help="Cohort manifest name (specs/<name>.cohort.yaml)."
+    ),
+    resume: bool = typer.Option(
+        False, "--resume", help="Resume only when manifest and bound inputs are unchanged."
+    ),
+    plot: bool = typer.Option(
+        False, "--plot", help="Also run the base spec's project-defined plot functions."
+    ),
+) -> None:
+    """Capture and aggregate an ordered, manifest-defined cohort."""
+    try:
+        result = service.capture_cohort(
+            _root(), name=name, resume=resume, plot=plot
+        )
+    except service.DowError as exc:
+        raise typer.BadParameter(str(exc))
+    report.print_cohort(result["cohort"])
+    report.print_aggregation(result["aggregation"])
 
 
 @app.command(**_doc("suite"))

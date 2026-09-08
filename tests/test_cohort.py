@@ -8,8 +8,10 @@ from __future__ import annotations
 import copy
 import pytest
 import yaml
+from typer.testing import CliRunner
 
 from dow import runner, service
+from dow.cli import app
 from dow.spec import CohortSpec, InferenceSpec
 from dow.store import Store
 
@@ -272,6 +274,33 @@ def test_capture_cohort_resumes_only_the_exact_completed_prefix(tmp_path, monkey
     assert len(Store(tmp_path).list_versions("probe")) == 2
 
 
+def test_capture_cohort_adopts_exact_version_committed_before_checkpoint(tmp_path, monkeypatch):
+    """A crash between version commit and progress save must not rerun that member."""
+    _cohort_project(tmp_path)
+    real_save = Store.save_cohort
+    saves = 0
+
+    def interrupt_first_member_checkpoint(self, cohort_name, record):
+        nonlocal saves
+        saves += 1
+        if saves == 2:
+            raise RuntimeError("simulated checkpoint interruption")
+        return real_save(self, cohort_name, record)
+
+    monkeypatch.setattr(Store, "save_cohort", interrupt_first_member_checkpoint)
+    with pytest.raises(RuntimeError, match="simulated checkpoint interruption"):
+        service.capture_cohort(tmp_path, "grid")
+    assert [v["id"] for v in Store(tmp_path).list_versions("probe")] == ["v1"]
+    assert service.read_cohort(tmp_path, "grid")["completed"] == []
+
+    monkeypatch.setattr(Store, "save_cohort", real_save)
+    resumed = service.capture_cohort(tmp_path, "grid", resume=True)
+    assert [(m["label"], m["version"]) for m in resumed["cohort"]["completed"]] == [
+        ("a", "v1"), ("b", "v2"),
+    ]
+    assert [v["id"] for v in Store(tmp_path).list_versions("probe")] == ["v1", "v2"]
+
+
 def test_capture_cohort_refuses_resume_after_manifest_or_artifact_change(tmp_path):
     """A changed grid or changed input bytes must require a new cohort identity."""
     _, cohort_path = _cohort_project(tmp_path)
@@ -298,3 +327,23 @@ def test_capture_cohort_refuses_concurrent_writer(tmp_path):
         with pytest.raises(service.DowError, match="locked"):
             service.capture_cohort(tmp_path, "grid")
     assert not (tmp_path / ".dow" / "locks" / "cohort-grid.lock").exists()
+
+
+def test_cohort_cli_captures_and_requires_explicit_resume(tmp_path, monkeypatch):
+    """The CLI must be a thin, usable surface over the durable service workflow."""
+    _cohort_project(tmp_path)
+    monkeypatch.chdir(tmp_path)
+    cli = CliRunner()
+
+    first = cli.invoke(app, ["cohort", "grid"])
+    assert first.exit_code == 0, first.output
+    assert "grid" in first.output
+    assert "v1" in first.output and "v2" in first.output
+
+    duplicate = cli.invoke(app, ["cohort", "grid"])
+    assert duplicate.exit_code != 0
+    assert "resume" in duplicate.output
+
+    resumed = cli.invoke(app, ["cohort", "grid", "--resume"])
+    assert resumed.exit_code == 0, resumed.output
+    assert [v["id"] for v in Store(tmp_path).list_versions("probe")] == ["v1", "v2"]

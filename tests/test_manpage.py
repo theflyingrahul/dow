@@ -29,6 +29,8 @@ def test_roff_protects_leading_control_characters():
 
 def test_manpage_has_no_unprotected_control_line_from_prose():
     page = _render_manpage()
+    assert "dow cohort [OPTIONS] [NAME]" in page
+    assert "manifest\\-defined cohort" in page
     # The init sentence that troff used to swallow must survive, guarded.
     assert "'dow commit' to capture v1" in page
     assert "\\&'dow commit' to capture v1" in page

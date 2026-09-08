@@ -10,6 +10,7 @@ import asyncio
 import os
 
 import pytest
+import yaml
 
 pytest.importorskip("mcp")
 
@@ -18,7 +19,7 @@ from dow import mcp_server as M  # noqa: E402
 EXPECTED_TOOLS = {
     "dow_list_specs", "dow_init", "dow_read_spec", "dow_write_spec", "dow_commit",
     "dow_compare", "dow_explain", "dow_eval", "dow_aggregate", "dow_suite", "dow_trend",
-    "dow_history", "dow_inspect", "dow_tag", "dow_tree", "dow_docs",
+    "dow_history", "dow_inspect", "dow_tag", "dow_tree", "dow_docs", "dow_capture_cohort",
 }
 
 
@@ -54,6 +55,49 @@ def test_project_resources_reflect_the_live_spec(tmp_path):
         assert "model:" in source and "evaluation:" in source
     finally:
         os.environ.pop("DOW_PROJECT_DIR", None)
+
+
+def test_capture_cohort_tool_runs_and_resumes_exact_manifest(tmp_path):
+    specs = tmp_path / "specs"
+    specs.mkdir()
+    (tmp_path / "ops.py").write_text(
+        "def run(req):\n"
+        "    value = req.config['params']['value']\n"
+        "    return {'output': value, 'payload': {'value': value}}\n",
+        encoding="utf-8",
+    )
+    base = {
+        "name": "probe",
+        "task": "mcp cohort",
+        "params": {"value": "base"},
+        "model": {"provider": "python", "name": "ops.py:run", "version": "1"},
+        "evaluation": {"embedding_model": "none", "samples": 1},
+        "inputs": ["fixed"],
+    }
+    cohort = {
+        "name": "grid",
+        "spec": "probe",
+        "members": [
+            {"label": "a", "overrides": {"params": {"value": "a"}}},
+            {"label": "b", "overrides": {"params": {"value": "b"}}},
+        ],
+    }
+    (specs / "probe.yaml").write_text(
+        yaml.safe_dump(base, sort_keys=False), encoding="utf-8"
+    )
+    (specs / "grid.cohort.yaml").write_text(
+        yaml.safe_dump(cohort, sort_keys=False), encoding="utf-8"
+    )
+
+    first = M.dow_capture_cohort(project_dir=str(tmp_path), name="grid")
+    assert first["cohort"]["status"] == "complete"
+    assert [m["version"] for m in first["cohort"]["completed"]] == ["v1", "v2"]
+    assert first["aggregation"]["members"] == ["v1", "v2"]
+
+    resumed = M.dow_capture_cohort(
+        project_dir=str(tmp_path), name="grid", resume=True
+    )
+    assert resumed["cohort"]["cohort_id"] == first["cohort"]["cohort_id"]
 
 
 def test_compare_tool_threads_the_agnostic_flag(tmp_path):
@@ -127,4 +171,3 @@ def test_trend_tool_returns_a_series(tmp_path):
     seq = tr["series"]["stability"]
     assert [p["id"] for p in seq] == ["v1", "v2"]
     assert seq[0]["deltaBaseline"] is None  # baseline has no reference
-

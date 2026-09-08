@@ -49,6 +49,8 @@ dow history        # list captured versions, stability, and tags
 dow inspect v1     # one version's spec, runtime capture, outputs, tags, eval
 dow tree           # visualize how behavior evolves across versions
 dow tree -o evolution.md   # export a Mermaid diagram; open the Markdown preview
+# for a declared grid: create specs/seed_sweep.cohort.yaml, then
+dow cohort seed_sweep      # capture each member in order and aggregate exactly those versions
 ```
 
 Versions are named automatically (v1, v2, ...); refer to them by name, the
@@ -138,6 +140,35 @@ pins a change to a single field also reports how far the coefficient moved. The
 `payload` a comparator reads is any structured per-item data a `python` provider
 returns alongside its text output; dow keeps it out of git (content-addressed
 under `.dow/artifacts/`) and rehydrates it on read.
+
+### Manifest-defined cohort capture
+
+When the full grid is known before execution, declare it as recursive overrides of
+one base inference spec:
+
+```yaml
+# specs/seed_sweep.cohort.yaml
+name: seed_sweep
+spec: probe
+members:
+  - label: seed-10
+    overrides:
+      params: {seed: 10}
+      inputs: [{artifact: runs/seed-10}]
+  - label: seed-20
+    overrides:
+      params: {seed: 20}
+      inputs: [{artifact: runs/seed-20}]
+```
+
+`dow cohort seed_sweep` binds the normalized manifest, base spec, and declared
+file/directory artifacts; captures members in order; checkpoints each durable
+version; and aggregates exactly those versions. `--resume` succeeds only when the
+manifest, member order, base spec, input bytes, and captured bindings are unchanged,
+and it safely adopts an exact member committed immediately before an interrupted
+checkpoint. Directory hashes bind every relative path, size, and file byte;
+symlinks fail closed. The consuming project still owns the operation, metrics,
+statistics, plots, thresholds, and scientific decisions.
 
 ### Cohort aggregators (N-way)
 

@@ -1,4 +1,4 @@
-.TH DOW 1 "2026-07-11" "dow 2.2.0" "Drift Observation Workbench"
+.TH DOW 1 "2026-09-08" "dow 2.3.0" "Drift Observation Workbench"
 .SH NAME
 dow \- track how your AI's behavior changes across versions
 .SH SYNOPSIS
@@ -197,6 +197,80 @@ dow aggregate v1 v2 v3 \-\-plot
 dow aggregate \-\-tag seed
 dow aggregate \-\-list
 dow aggregate \-\-show a1
+.fi
+.RE
+.PP
+.SS cohort
+.B dow cohort [OPTIONS] [NAME]
+.PP
+Capture and aggregate an ordered, manifest\-defined cohort with exact resume.
+.PP
+Use this when a robustness grid is known before execution and every member is a
+recursive override of one base inference spec. Put the grid in
+specs/<name>.cohort.yaml:
+.PP
+name: seed_sweep
+  spec: probe
+  members:
+    \- label: seed\-10
+      overrides:
+        params:
+          seed: 10
+        inputs:
+          \- artifact: runs/seed\-10
+    \- label: seed\-20
+      overrides:
+        params:
+          seed: 20
+        inputs:
+          \- artifact: runs/seed\-20
+.PP
+The base spec remains specs/probe.yaml. Mappings merge recursively; lists,
+scalars, and explicit nulls replace the base value. Member order is significant,
+labels must be unique safe path components, and a member cannot change the base
+spec name.
+.PP
+dow fingerprints the normalized manifest and base spec, binds every declared file
+or directory artifact by SHA\-256, captures members in order, and checkpoints after
+each durable version. Directory hashes bind the relative paths, sizes, and bytes of
+all regular files and reject symlinks. The final aggregation contains exactly the
+versions created for this manifest, never unrelated history.
+.PP
+After an interruption, use \-\-resume. Resume fails closed if the base spec,
+manifest, member order, overrides, artifact bytes, or captured version bindings
+changed. If a process dies after committing a member but before saving its progress,
+dow authenticates and adopts that exact next version rather than running it twice.
+An existing cohort is never resumed implicitly.
+.PP
+dow supplies only these generic capture, identity, and resume mechanics. Your base
+spec and project modules still own the operation, provider, metrics, aggregators,
+plots, scientific labels, and decision rules. A process killed without normal
+cleanup can leave .dow/locks/cohort\-<name>.lock; remove it only after verifying that
+the recorded PID/host no longer has an active writer.
+.PP
+Arguments:
+.RS
+.TP
+.B NAME
+Cohort manifest name (specs/<name>.cohort.yaml).
+.RE
+.PP
+Options:
+.RS
+.TP
+.B \-\-resume
+Resume only when manifest and bound inputs are unchanged.
+.TP
+.B \-\-plot
+Also run the base spec's project\-defined plot functions.
+.RE
+.PP
+Examples:
+.RS
+.nf
+dow cohort seed_sweep
+dow cohort seed_sweep \-\-resume
+dow cohort seed_sweep \-\-plot
 .fi
 .RE
 .PP

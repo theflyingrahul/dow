@@ -1,8 +1,9 @@
 """Model Context Protocol (MCP) server for dow.
 
 Exposes dow's core behavior-versioning workflow - scaffold a spec, capture
-versions, compare/explain drift, aggregate reliability over a cohort (or across
-specs as a matrix), evaluate, tag, and visualize evolution - as MCP tools so an
+versions, capture resumable manifest-defined cohorts, compare/explain drift,
+aggregate reliability over a cohort (or across specs as a matrix), evaluate,
+tag, and visualize evolution - as MCP tools so an
 AI client can drive dow directly, at full parity with the CLI. Read-only MCP
 resources expose dow's docs and the live project's specs as attachable context
 (the ``dow://`` URIs below).
@@ -57,10 +58,11 @@ Typical loop:
   2. dow_read_spec -> edit -> dow_write_spec  - change ONE field for clean attribution
   3. dow_commit                           - capture a new version (v1, v2, ...)
   4. dow_compare / dow_explain            - what changed pairwise, and why
-  5. dow_aggregate                        - reliability metrics over a COHORT (K seeds/judges/prompts)
-  6. dow_suite                            - aggregate ACROSS specs (the check x model x domain x temp matrix)
-  7. dow_trend                            - follow a metric across the WHOLE history (regression watch)
-  8. dow_eval / dow_tag / dow_tree / dow_history / dow_inspect
+  5. dow_capture_cohort                   - capture/resume an ordered manifest-defined grid
+  6. dow_aggregate                        - reliability metrics over a COHORT (K seeds/judges/prompts)
+  7. dow_suite                            - aggregate ACROSS specs (the check x model x domain x temp matrix)
+  8. dow_trend                            - follow a metric across the WHOLE history (regression watch)
+  9. dow_eval / dow_tag / dow_tree / dow_history / dow_inspect
 
 For sweeps and CI, dow_compare(fail_on="regression"|"drift") and dow_eval with a
 metric threshold return a gate decision a caller can turn into a pass/fail.
@@ -301,6 +303,31 @@ def dow_aggregate(
     if show:
         return _run(service.get_aggregation, root, name=spec, agg_id=show)
     return _run(service.aggregate, root, name=spec, versions=versions, tag=tag, plot=plot)
+
+
+@mcp.tool()
+def dow_capture_cohort(
+    name: Optional[str] = None,
+    resume: bool = False,
+    plot: bool = False,
+    project_dir: Optional[str] = None,
+) -> dict:
+    """Capture and aggregate an ordered ``specs/<name>.cohort.yaml`` manifest.
+
+    Each manifest member recursively overrides one base inference spec. dow binds
+    the normalized manifest and declared file/directory artifacts, commits members
+    sequentially, checkpoints after every member, and aggregates exactly those
+    versions. Set ``resume=true`` after interruption; resume succeeds only when the
+    base spec, member order, overrides, and input bytes are unchanged. Project code
+    still owns every provider operation, metric, aggregator, plot, and decision rule.
+    """
+    return _run(
+        service.capture_cohort,
+        _root(project_dir),
+        name=name,
+        resume=resume,
+        plot=plot,
+    )
 
 
 @mcp.tool()

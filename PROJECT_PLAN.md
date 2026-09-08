@@ -4,14 +4,15 @@
 
 Goal: Deliver a working command-line tool in under one day that versions the full inference specification, executes it locally, and quantifies how AI behavior differs between two versions while attributing each change to its cause.
 
-> **Status (2026-07): shipped — v2.2.0.** The MVP below is complete and every
+> **Status (2026-09): v2.2.0 shipped; v2.3.0 prepared.** The MVP below is complete and every
 > stretch item that survived contact (suite-level aggregation, multi-version drift
 > trend, and the non-zero-exit regression gate) shipped as first-class commands
 > (`dow suite`, `dow trend`, `dow compare --fail-on-regression`/`--fail-on-drift`,
-> `dow eval --min/--max`). The Definition of Done in §14 is checked off. The tool is
-> published to PyPI and pinned by downstream projects (e.g. the thesis
-> `robustness_checks/` battery). See [`CHANGELOG.md`](CHANGELOG.md) for the release
-> history; this plan is retained as the original design record.
+> `dow eval --min/--max`). The v2.3.0 source adds generic manifest-defined,
+> resumable cohort capture and deterministic directory-artifact binding; publishing
+> that release is a separate distribution step. The Definition of Done in §14 is
+> checked off. See [`CHANGELOG.md`](CHANGELOG.md) for the release history; this plan
+> is retained as the original design record.
 
 ---
 
@@ -38,6 +39,8 @@ Guiding principle for a one-day build: protect the minimum viable product (MVP) 
 - A public REST API, CORS, or client-server networking.
 - Authentication, multi-user support, or a managed database.
 - Model fine-tuning.
+- Domain-specific workflow schemas, statistics, plots, labels, or decision rules.
+- Distributed scheduling, cluster liveness, or retry-attempt management.
 
 ---
 
@@ -63,6 +66,15 @@ Pipeline: versioned specification, then runner, then language model, then output
 The unit of versioning is the inference specification. A version of AI behavior is an automatically captured snapshot - the specification together with its run record - stored durably in the Git-backed behavior store and referred to by a simple name such as v1 or v2. Users never run Git commands.
 
 **Design principle - data-structure agnostic.** dow versions the *specification* and records the *metrics*, and it is deliberately incurious about everything else. It ships no coefficients and no plotting library (the project plugs those in under `evaluation.comparators` / `aggregators` / `plots`); it treats each version's per-item `payload` as an opaque blob it persists but never interprets, and it persists that blob no matter how the project represents it in memory (numpy arrays, sets, dataclasses, and other exotic values degrade to a faithful JSON-native form rather than breaking the capture); and it makes its own built-in text signals optional (`embedding_model: none`) for behavior that is not free text. How the calling project represents, stores, or shapes its data therefore never constrains dow's design. dow's job is to be extremely reliable at tracking what changed - prompt, model, sampling, params - and the metrics the project cares about, and nothing more.
+
+**Generic cohort orchestration.** A `specs/<name>.cohort.yaml` manifest may declare
+an ordered grid as recursive overrides of one base inference spec. dow owns only
+identity binding, sequential capture, atomic progress, exact resume, and explicit-
+member aggregation. File and directory inputs are content-bound; directory hashing
+is deterministic and rejects symlinks. The consuming project still owns the operation,
+provider, interpretation, metrics, plots, and all scientific decisions. This boundary
+keeps reusable durability in dow without turning it into a domain-specific workflow
+engine.
 
 ---
 
