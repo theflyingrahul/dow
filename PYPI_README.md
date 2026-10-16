@@ -326,5 +326,5 @@ https://github.com/theflyingrahul/dow
 
 ## License
 
-MIT. The full license text ships in the package (LICENSE) and is available in the
-repository: https://github.com/theflyingrahul/dow
+GNU General Public License v2 (GPLv2). The full license text ships in the package
+(LICENSE) and is available in the repository: https://github.com/theflyingrahul/dow
